@@ -109,5 +109,6 @@ include("Libcint.jl")
 include("Acsint.jl")
 include("Integrals.jl")
 include("Gradients.jl")
+include("SALCs/SALCs.jl")
 
 end # module
