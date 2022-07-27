@@ -101,14 +101,14 @@ function adapt(rot)
     rrot[3,1] = rot[1,2]
     rrot[3,2] = rot[1,3]
     rrot[3,3] = rot[1,1]
-    println(rot)
+    #println(rot)
     return rrot
 end
 function generateRotations(Lmax, rot)
     Rsh = Any[]
-    rrot = adapt(rot)
-    #rrot = rot
-    println("Rotates rot ", rrot)
+    #rrot = adapt(rot)
+    rrot = rot
+    #println("Rotates rot ", rrot)
     push!(Rsh, identity_matrix())
     l = 1
     while l < Lmax + 1
@@ -133,10 +133,8 @@ function generateRotations(Lmax, rot)
                 end
             end
             push!(Rsh, R)
-            #println("RSH list ", Rsh)
         end 
         l += 1
     end
-    #println("Should be finished")
     return Rsh
 end
