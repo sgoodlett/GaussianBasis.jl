@@ -9,21 +9,6 @@ struct Stalc
     γ::Float64
 end
 
-function Soverlap(stalcs, symtext, irrm)
-    l = length(stalcs)
-    S = zeros(Float64, l, l)
-    for s1 = 1:l
-        for s2 = 1:l
-            if stalcs[s1].irrep == stalcs[s2].irrep && stalcs[s1].i == stalcs[s2].i
-                S[s1, s2] = 1.0
-            else
-                S[s1, s2] = 0.0
-            end
-        end
-    end
-    return S
-end
-
 function get_atom_subgroup(atomidx, symtext)
     subgroup = []
     for (i,v) in enumerate(symtext.atom_map[atomidx,:])
@@ -122,7 +107,7 @@ struct IntGarbage
     irr_dims
 end
 
-function Λfxn(garbo::IntGarbage, salc, ab, p, R)
+function Λfxn(garbo::IntGarbage, salc, ab, p, R::Int64)
     out = 0.0
     for U in garbo.stat_subgrps[salc.atom]
         RU = garbo.symtext.mult_table[R, U]
@@ -132,17 +117,25 @@ function Λfxn(garbo::IntGarbage, salc, ab, p, R)
 end
 
 # Same function but R=1
-function Λfxn(garbo::IntGarbage, salc, ab, p)
+function Λfxn(garbo::IntGarbage, salc, ab, p, printstuff=false)
     out = 0.0
     for U in garbo.stat_subgrps[salc.atom]
+        if printstuff
+            println("C[$U, $(salc.sh), $ab, $(salc.ml)] = $(garbo.fxnmap[U][salc.sh][ab, salc.ml])")
+        end
         out += garbo.fxnmap[U][salc.sh][ab, salc.ml]*garbo.irrm[salc.irrep][U][p,salc.r]
     end
     return out * garbo.irr_dims[salc.irrep] / garbo.g
 end
 
-function Γfxn(garbo::IntGarbage, salc1, salc2, ab, bb, R, λr)
+function Γfxn(garbo::IntGarbage, salc1, salc2, ab, bb, R, λr, printstuff::Bool)
     out = 0.0
     for p = 1:garbo.irr_dims[salc1.irrep]
+        porque1 = Λfxn(garbo, salc1, ab, p, printstuff)
+        porque2 = Λfxn(garbo, salc2, bb, p, R)
+        if printstuff
+            println("p: $p, Λ: $porque1, Λ(R): $porque2")
+        end
         out += Λfxn(garbo, salc1, ab, p) * Λfxn(garbo, salc2, bb, p, R)
     end
     return out * garbo.g/(garbo.irr_dims[salc1.irrep] * λr)
@@ -159,25 +152,6 @@ function get_garbage(mol, symtext, bset)
 end
 
 function get_Stalcs(mol, bset)
-    #rt2 = 1/sqrt(2)
-    #rt3 = 1/sqrt(3)
-    #rt6 = 1/sqrt(6)
-    #n1s  = [1,0,0,0,0,0,0,0]
-    #n2s  = [0,1,0,0,0,0,0,0]
-    #npz  = [0,0,0,0,1,0,0,0]
-    #nxy1 = [0,0,1,0,0,0,0,0]
-    #nxy2 = [0,0,0,1,0,0,0,0]
-    #ha1  = [0,0,0,0,0,rt3,rt3,rt3]
-    #he1  = [0,0,0,0,0,2rt6,-rt6,-rt6]
-    #he2  = [0,0,0,0,0,0,rt2,-rt2]
-    #stalcs = [Stalc(n1s, "A1", 1, 1, 1, 1, 1.0),
-    #          Stalc(n2s, "A1", 1, 2, 1, 1, 1.0),
-    #          Stalc(npz, "A1", 1, 5, 1, 1, 1.0),
-    #          Stalc(ha1, "A1", 2, 1, 1, 1, sqrt(3)), # (2/6 * rt3)^-1
-    #          Stalc(nxy1, "E", 1, 3, 1, 1, 2.0),
-    #          Stalc(nxy2, "E", 1, 3, 2, 1, 2.0),
-    #          Stalc(he1,  "E", 2, 1, 1, 1, sqrt(6)),
-    #          Stalc(he2,  "E", 2, 1, 2, 1, sqrt(6))]#(3/2)*sqrt(2)*(2/sqrt(3)))]
     stalcs, doodad = GaussianBasis.SALCs.ProjectionOp(mol, bset)[4:5]
     return stalcs, doodad
 end
@@ -201,23 +175,51 @@ function build_thang(bset::BasisSet)
     return thang
 end
 
-function sintegrals(molfn::String, basis, int_type::Function)
+function check_salcs(salcs, aotoso)
+    results = []
+    for (i, salc) in enumerate(salcs)
+        m = findmax(broadcast(abs, salc.coeffs-aotoso[:,i]))
+        push!(results,m[1])
+    end
+    return results
+end
+
+function sintegrals(molfn::String, basis::String, int_type::Function)
     mol = Molecules.parse_file(molfn)
     return sintegrals(mol, basis, int_type)
 end
 
-function sintegrals(mol::Vector{Molecules.Atom}, basis, int_type::Function)
+function sintegrals(mol::Vector{Molecules.Atom}, basis::String, int_type::Function)
+    bset = BasisSet(basis, mol)
+    return sintegrals(mol, bset, int_type)
+end
+
+function sintegrals(mol::Vector{Molecules.Atom}, basis::Vector{SphericalShell{Molecules.Atom{T,T},1,T}}, int_type::Function) where {T}
+    bset = BasisSet("NewBasis", mol, basis)
+    return sintegrals(mol, bset, int_type)
+end
+
+function sintegrals(mol::Vector{Molecules.Atom}, basis::BasisSet, int_type::Function)
     #mol = Molecules.parse_file(molfn)
     #bset = BasisSet(basis, mol)
-    bset = BasisSet(basis, mol)
+    #bset = BasisSet(basis, mol)
+    #display(mol)
+    bset = basis
     symtext = Molecules.Symmetry.CharacterTables.symtext_from_mol(mol)
-    display(symtext)
+    #display(symtext)
     abars = build_thang(bset)
+    #println(abars)
     int_garb, stalcs, aotoso = get_garbage(mol, symtext, bset)
-    display(aotoso)
+    #println(int_garb.fxnmap[1])
+    #println(stalcs[5])
+    #aotoso[:,[23,24,52,53]] = aotoso[:,[24,23,53,52]]
+    #aotoso[[23,24,52,53],:] = aotoso[[24,23,53,52],:]
+    #display(aotoso)
     Sboy = int_type(bset)
     sym_S = transpose(aotoso) * Sboy * aotoso
-    display(stalcs)
+    #display(stalcs)
+    #println(stalcs[5])
+    println(check_salcs(stalcs, aotoso))
     porque = zeros(Float64, size(aotoso))
     for i = 1:length(stalcs)
         porque[:,i] = aotoso[:,i]-stalcs[i].coeffs
@@ -229,6 +231,11 @@ function sintegrals(mol::Vector{Molecules.Atom}, basis, int_type::Function)
         for s2 = s1:slength
             salc1 = stalcs[s1]
             salc2 = stalcs[s2]
+            printstuff = false
+            if s1 == 5 && s2 == 5
+                printstuff = false
+                #println("atom1: $(salc1.atom), U: $(int_garb.stat_subgrps[salc1.atom]), V: $(int_garb.stat_subgrps[salc2.atom])")
+            end
             if salc1.irrep == salc2.irrep && salc1.i == salc2.i
                 U = int_garb.stat_subgrps[salc1.atom]
                 if salc1.atom == salc2.atom && salc1.bfxn == salc2.bfxn && false # I don't want to deal with this yet, so we can calculate redundant integrals and I won't feel bad
@@ -241,7 +248,10 @@ function sintegrals(mol::Vector{Molecules.Atom}, basis, int_type::Function)
                         Rb = int_garb.symtext.atom_map[salc2.atom,R]
                         for (abidx,ab) in enumerate(abars[salc1.atom][salc1.bfxn][2]) # TODO
                             for (bbidx,bb) in enumerate(abars[salc2.atom][salc2.bfxn][2])
-                                Γ = Γfxn(int_garb, salc1, salc2, abidx, bbidx, R, λs[Ridx])
+                                Γ = Γfxn(int_garb, salc1, salc2, abidx, bbidx, R, λs[Ridx], printstuff)
+                                if printstuff
+                                    println("R: $R, ab: $ab, bb: $bb, abidx: $abidx, bbidx: $bbidx, Γ: $Γ")
+                                end
                                 out = int_type(bset, abars[salc1.atom][salc1.bfxn][1], abars[Rb][salc2.bfxn][1])[abidx,bbidx] # shell_a, shell_b, ml_ab, ml_bb
                                 S[s1, s2] += Γ*out*salc1.γ*salc2.γ
                                 if s1 != s2
