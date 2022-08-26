@@ -147,7 +147,7 @@ function get_garbage(mol, symtext, bset)
     for A in 1:length(mol)
         push!(subgrps, get_atom_subgroup(A, symtext))
     end
-    aotoso, ignore_this, stalcs, doodad = GaussianBasis.SALCs.ProjectionOp(mol, bset)[2:5]
+    aotoso, ignore_this, stalcs, doodad = GaussianBasis.SALCs.ProjectionOp(mol, bset, symtext)[2:5]
     return IntGarbage(symtext, irrm, doodad, subgrps, symtext.order, symtext.ctab.irrep_dims), stalcs, aotoso
 end
 
@@ -186,26 +186,28 @@ end
 
 function sintegrals(molfn::String, basis::String, int_type::Function)
     mol = Molecules.parse_file(molfn)
-    return sintegrals(mol, basis, int_type)
+    mol, symtext = Molecules.Symmetry.CharacterTables.symtext_from_mol(mol)
+    return sintegrals(mol, basis, int_type, symtext)
 end
 
-function sintegrals(mol::Vector{Molecules.Atom}, basis::String, int_type::Function)
-    bset = BasisSet(basis, mol)
-    return sintegrals(mol, bset, int_type)
-end
+#function sintegrals(mol::Vector{Molecules.Atom}, basis::String, int_type::Function)
+#    bset = BasisSet(basis, mol)
+#    return sintegrals(mol, bset, int_type)
+#end
+#
+#function sintegrals(mol::Vector{Molecules.Atom}, basis::Vector{SphericalShell{Molecules.Atom{T,T},1,T}}, int_type::Function) where {T}
+#    bset = BasisSet("NewBasis", mol, basis)
+#    return sintegrals(mol, bset, int_type)
+#end
 
-function sintegrals(mol::Vector{Molecules.Atom}, basis::Vector{SphericalShell{Molecules.Atom{T,T},1,T}}, int_type::Function) where {T}
-    bset = BasisSet("NewBasis", mol, basis)
-    return sintegrals(mol, bset, int_type)
-end
-
-function sintegrals(mol::Vector{Molecules.Atom}, basis::BasisSet, int_type::Function)
+function sintegrals(mol::Vector{Molecules.Atom}, basis, int_type, symtext)
     #mol = Molecules.parse_file(molfn)
     #bset = BasisSet(basis, mol)
-    #bset = BasisSet(basis, mol)
+    bset = BasisSet(basis, mol)
     #display(mol)
-    bset = basis
-    symtext = Molecules.Symmetry.CharacterTables.symtext_from_mol(mol)
+    #bset = basis
+    #mol,symtext = Molecules.Symmetry.CharacterTables.symtext_from_mol(mol)
+    display(mol)
     #display(symtext)
     abars = build_thang(bset)
     #println(abars)
@@ -217,7 +219,10 @@ function sintegrals(mol::Vector{Molecules.Atom}, basis::BasisSet, int_type::Func
     #display(aotoso)
     Sboy = int_type(bset)
     sym_S = transpose(aotoso) * Sboy * aotoso
-    #display(stalcs)
+    for i = 1:length(stalcs)
+        println("Irrep.: $(stalcs[i].irrep), Atom: $(stalcs[i].atom), Bsfxn: $(stalcs[i].bfxn), sh, ml: $(stalcs[i].sh), $(stalcs[i].ml), i,r: $(stalcs[i].i), $(stalcs[i].r)")
+    end
+    #display(aotoso[9:14,6:9])
     #println(stalcs[5])
     println(check_salcs(stalcs, aotoso))
     porque = zeros(Float64, size(aotoso))
@@ -268,3 +273,11 @@ function sintegrals(mol::Vector{Molecules.Atom}, basis::BasisSet, int_type::Func
     println(findmax(broadcast(abs, S-sym_S)))
     return S
 end
+
+#function sERI(mol::String, bset::String)
+#
+#end
+#
+#function sERI(mol::Vector{Molecules.Atoms}, bset::BasisSet)
+#    
+#end

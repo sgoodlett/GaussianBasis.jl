@@ -174,19 +174,27 @@ end
 
 #non-abelian projection operator for real-spherical harmonics
 
-function ProjectionOp(mol, bset)
+function ProjectionOp(mol, bset, symtext)
     stevie_boy = Vector{SALC}()
-    symtext = Molecules.Symmetry.CharacterTables.symtext_from_mol(mol)    
-    mol = Molecules.translate(mol, Molecules.center_of_mass(mol))
+    #mol,symtext = Molecules.Symmetry.CharacterTables.symtext_from_mol(mol)
+    #mol = Molecules.translate(mol, Molecules.center_of_mass(mol))
     D = Molecules.Symmetry.buildD(mol)
     SEAs = Molecules.Symmetry.findSEA(D, 5)
     
     maxam = maxamcheck(bset)
     rotated = collectRotations(maxam, symtext.symels)
+    #for j = 1:5
+    #    v = zeros((5,1))
+    #    for i = 1:4
+    #        v += rotated[i][3][:,j]
+    #    end
+    #    v *= 1/sqrt(v⋅v)
+    #    display(v)
+    #end
+    #display(rotated[2][3])
     salcs = salc_irreps(symtext.ctab)
     nbas_vec = bset.basis_per_atom
     outers = basis_am(bset)
-    println("outers: $outers")
     span = Any[]
     
     #loop over SEA sets
@@ -217,6 +225,10 @@ function ProjectionOp(mol, bset)
                                 salc = [zeros(bset.nbas) for x in 1:dims[1], y in 1:dims[1]]
                                 #salc = zeros(bset.nbas) for x in 1:dims[1], y in 1:dims[1]
                                 salc = projection(salc, bset, symtext, irrep, irrmat, rotated, l, ml, equivatom, basis, nbas_vec, sea)
+                                #println("atom: $atom_idx, k: $k, l,ml: $l, $ml, irrep: $irrep")
+                                #if irrep == "A1"
+                                #    println(salc)
+                                #end
                                 chk = false
                                 for brodx = 1:dims[1]
                                     if sum(broadcast(abs, salc[1, brodx])) > 1e-8
@@ -232,7 +244,7 @@ function ProjectionOp(mol, bset)
                                         #convention for these salcs: largest element in salc needs to be positive, apply to pfs
                                     
                                         index = findmax(broadcast(abs, salcy))
-                                        if index[1] < 1e-8
+                                        if index[1] < 1e-7
                                             continue
                                         end
                                         factor = sum(x -> x^2, salcy)
@@ -273,12 +285,39 @@ function ProjectionOp(mol, bset)
     #println("Stevie boy: \n$(stevie_boy)\n\n")
     #sort!(stevie_boy, by = x->(x.irrep, x.atom, x.bfxn, x.i)) # Don't sort by x.irrep bc this can backfire for Ih where G and H come before T
     sort!(stevie_boy, by = x->(Molecules.Symmetry.CharacterTables.irrep_sort_idx(x.irrep), x.atom, x.bfxn, x.i, x.r))
-    salc_chk = LinearAlgebra.det(bigg)
-    if abs(salc_chk) < 1e-8
-        display(bigg)
-        throw(ErrorException("Oh fook, the SALCs are linearly dependent!!!"))
-    end
+    #salc_chk = LinearAlgebra.det(bigg)
+    #if abs(salc_chk) < 1e-8
+    #    display(bigg)
+    #    throw(ErrorException("Oh fook, the SALCs are linearly dependent!!!"))
+    #end
     return salcs, bigg, so_irrep, stevie_boy, rotated#, symtext
+end
+
+function garbo()
+    molfn = "/home/smg13363/Molecules.jl/test/xyz/water.xyz"
+    basisnm = "cc-pvdz"
+    mol = Molecules.parse_file(molfn)
+    bset = GaussianBasis.BasisSet(basisnm, mol)
+    mol,symtext = Molecules.Symmetry.CharacterTables.symtext_from_mol(mol)    
+    #mol = Molecules.translate(mol, Molecules.center_of_mass(mol))
+    #D = Molecules.Symmetry.buildD(mol)
+    #SEAs = Molecules.Symmetry.findSEA(D, 5)
+    irrmat = eval(Meta.parse("Molecules.Symmetry.CharacterTables.irrm_$(symtext.pg)"))["A1"]
+    dims = size(irrmat[1])
+    salc = [zeros(bset.nbas) for x in 1:dims[1], y in 1:dims[1]]
+    maxam = maxamcheck(bset)
+    rotated = collectRotations(maxam, symtext.symels)
+    display(rotated[2][3])
+    salcs = salc_irreps(symtext.ctab)
+    nbas_vec = bset.basis_per_atom
+    #outers = basis_am(bset)
+    #span = Any[]
+    #irrep = 1
+    #salc = []
+    for i = 1:5
+        projection(salc, bset, symtext, "A1", irrmat, rotated, 2, i, 1, 10, nbas_vec, 0)
+        display(normalize(salc[1][10:14]))
+    end
 end
 
 function projection(salc, bset, symtext, irrep, irrmat, rotated, l, ml, equivatom, basis, nbas_vec, sea)

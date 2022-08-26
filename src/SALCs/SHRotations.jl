@@ -91,7 +91,7 @@ end
 
 function adapt(rot)
     rrot = zeros(Float64,3,3)
-    println(rot)
+    #println(rot)
     rrot[1,1] = rot[2,2]
     rrot[1,2] = rot[2,3]
     rrot[1,3] = rot[2,1]
