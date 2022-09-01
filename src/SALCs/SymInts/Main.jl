@@ -184,6 +184,22 @@ function check_salcs(salcs, aotoso)
     return results
 end
 
+function direct_product(irr_list, symtext)
+    r = ones(Float64, length(symtext.ctab.classes))
+    for (i, irr) = enumerate(irr_list)
+        r .*= symtext.ctab[irr]
+    end
+    return r
+end
+
+function tran_as_A1(irr_list, symtext)
+    if sum(direct_product(irr_list,symtext).*symtext.ctab.class_orders) > 1E-6
+        return true
+    else
+        return false
+    end
+end
+
 function sintegrals(molfn::String, basis::String, int_type::Function)
     mol = Molecules.parse_file(molfn)
     mol, symtext = Molecules.Symmetry.CharacterTables.symtext_from_mol(mol)
@@ -201,46 +217,27 @@ end
 #end
 
 function sintegrals(mol::Vector{Molecules.Atom}, basis, int_type, symtext)
-    #mol = Molecules.parse_file(molfn)
-    #bset = BasisSet(basis, mol)
+    to = TimerOutput()
     bset = BasisSet(basis, mol)
-    #display(mol)
-    #bset = basis
-    #mol,symtext = Molecules.Symmetry.CharacterTables.symtext_from_mol(mol)
     display(mol)
-    #display(symtext)
+    @timeit to "Get stuff" begin
     abars = build_thang(bset)
-    #println(abars)
-    int_garb, stalcs, aotoso = get_garbage(mol, symtext, bset)
-    #println(int_garb.fxnmap[1])
-    #println(stalcs[5])
-    #aotoso[:,[23,24,52,53]] = aotoso[:,[24,23,53,52]]
-    #aotoso[[23,24,52,53],:] = aotoso[[24,23,53,52],:]
-    #display(aotoso)
+    int_garb, stalcs, aotoso = get_garbage(mol, symtext, bset) end
+    @timeit to "Ints hard" begin
     Sboy = int_type(bset)
-    sym_S = transpose(aotoso) * Sboy * aotoso
-    for i = 1:length(stalcs)
-        println("Irrep.: $(stalcs[i].irrep), Atom: $(stalcs[i].atom), Bsfxn: $(stalcs[i].bfxn), sh, ml: $(stalcs[i].sh), $(stalcs[i].ml), i,r: $(stalcs[i].i), $(stalcs[i].r)")
-    end
-    #display(aotoso[9:14,6:9])
-    #println(stalcs[5])
-    println(check_salcs(stalcs, aotoso))
-    porque = zeros(Float64, size(aotoso))
-    for i = 1:length(stalcs)
-        porque[:,i] = aotoso[:,i]-stalcs[i].coeffs
-    end
-    println(findmax(broadcast(abs, porque)))
+    sym_S = transpose(aotoso) * Sboy * aotoso end
+    #for i = 1:length(stalcs)
+    #    println("Irrep.: $(stalcs[i].irrep), Atom: $(stalcs[i].atom), Bsfxn: $(stalcs[i].bfxn), sh, ml: $(stalcs[i].sh), $(stalcs[i].ml), i,r: $(stalcs[i].i), $(stalcs[i].r), Factor:$(stalcs[i].γ)")
+    #end
+    println("Max dif. in salcs: ", findmax(broadcast(abs, check_salcs(stalcs, aotoso)))[1])
     slength = length(stalcs)
     S = zeros(Float64, slength, slength)
+    @timeit to "My Ints" begin
     for s1 = 1:slength
         for s2 = s1:slength
             salc1 = stalcs[s1]
             salc2 = stalcs[s2]
             printstuff = false
-            if s1 == 5 && s2 == 5
-                printstuff = false
-                #println("atom1: $(salc1.atom), U: $(int_garb.stat_subgrps[salc1.atom]), V: $(int_garb.stat_subgrps[salc2.atom])")
-            end
             if salc1.irrep == salc2.irrep && salc1.i == salc2.i
                 U = int_garb.stat_subgrps[salc1.atom]
                 if salc1.atom == salc2.atom && salc1.bfxn == salc2.bfxn && false # I don't want to deal with this yet, so we can calculate redundant integrals and I won't feel bad
@@ -251,13 +248,10 @@ function sintegrals(mol::Vector{Molecules.Atom}, basis, int_type, symtext)
                     Rs, λs = get_Rs(U, V, int_garb.symtext)
                     for (Ridx,R) in enumerate(Rs)
                         Rb = int_garb.symtext.atom_map[salc2.atom,R]
-                        for (abidx,ab) in enumerate(abars[salc1.atom][salc1.bfxn][2]) # TODO
+                        for (abidx,ab) in enumerate(abars[salc1.atom][salc1.bfxn][2])
                             for (bbidx,bb) in enumerate(abars[salc2.atom][salc2.bfxn][2])
-                                Γ = Γfxn(int_garb, salc1, salc2, abidx, bbidx, R, λs[Ridx], printstuff)
-                                if printstuff
-                                    println("R: $R, ab: $ab, bb: $bb, abidx: $abidx, bbidx: $bbidx, Γ: $Γ")
-                                end
-                                out = int_type(bset, abars[salc1.atom][salc1.bfxn][1], abars[Rb][salc2.bfxn][1])[abidx,bbidx] # shell_a, shell_b, ml_ab, ml_bb
+                                @timeit to "Γ" Γ = Γfxn(int_garb, salc1, salc2, abidx, bbidx, R, λs[Ridx], printstuff)
+                                @timeit to "AO ints" out = int_type(bset, abars[salc1.atom][salc1.bfxn][1], abars[Rb][salc2.bfxn][1])[abidx,bbidx] # shell_a, shell_b, ml_ab, ml_bb
                                 S[s1, s2] += Γ*out*salc1.γ*salc2.γ
                                 if s1 != s2
                                     S[s2, s1] += Γ*out*salc1.γ*salc2.γ
@@ -269,15 +263,115 @@ function sintegrals(mol::Vector{Molecules.Atom}, basis, int_type, symtext)
             end
         end
     end
-    display(sym_S)
+    end #time
+    #display(sym_S)
     println(findmax(broadcast(abs, S-sym_S)))
-    return S
+    show(to)
+    return 0
 end
 
-#function sERI(mol::String, bset::String)
-#
-#end
-#
-#function sERI(mol::Vector{Molecules.Atoms}, bset::BasisSet)
-#    
-#end
+function stwintegrals(mol::String, bset)
+    mol, symtext = Molecules.Symmetry.CharacterTables.symtext_from_file(mol)
+    return stwintegrals(mol, bset, symtext)
+end
+
+function stwintegrals(mol::Vector{Molecules.Atom}, basis, symtext)
+    to = TimerOutput()
+    bset = BasisSet(basis, mol)
+    @timeit to "Abars and IntGarb" begin
+    abars = build_thang(bset)
+    int_garb, salcs, aotoso = get_garbage(mol, symtext, bset)
+    end
+    @timeit to "Ints the hard way" begin
+    ERI_AO = ERI_2e4c(bset)
+    SERI = zeros(bset.nbas, bset.nbas, bset.nbas, bset.nbas)
+    @tensoropt SERI[i,j,k,l] =  aotoso[μ, i]*aotoso[ν, j]*ERI_AO[μ, ν, ρ, σ]*aotoso[ρ, k]*aotoso[σ, l]
+    end
+    for i = 1:length(salcs)
+        println("Irrep.: $(salcs[i].irrep), Atom: $(salcs[i].atom), Bsfxn: $(salcs[i].bfxn), sh, ml: $(salcs[i].sh), $(salcs[i].ml), i,r: $(salcs[i].i), $(salcs[i].r)")
+    end
+    println(check_salcs(salcs, aotoso))
+    porque = zeros(Float64, size(aotoso))
+    for i = 1:length(salcs)
+        porque[:,i] = aotoso[:,i]-salcs[i].coeffs
+    end
+    println(findmax(broadcast(abs, porque)))
+    slength = length(salcs)
+    eri = zeros(Float64, slength, slength, slength, slength)
+    @timeit to "My Ints" begin
+    for (s1,salc1) = enumerate(salcs)
+        U = int_garb.stat_subgrps[salc1.atom]
+        println("*Salc 1: $s1")
+        for (s2,salc2) = enumerate(salcs)
+            V = int_garb.stat_subgrps[salc2.atom]
+            @timeit to "get_Rs" Rs, λRs = get_Rs(U, V, int_garb.symtext)
+            for R in Rs
+                M = intersect(int_garb.stat_subgrps[salc1.atom], int_garb.stat_subgrps[int_garb.symtext.atom_map[salc2.atom, R]])
+                for (s3,salc3) = enumerate(salcs)
+                    W = int_garb.stat_subgrps[salc3.atom]
+                    for (s4,salc4) = enumerate(salcs)
+                        if !tran_as_A1([salc1.irrep, salc2.irrep, salc3.irrep, salc4.irrep], symtext)
+                            continue
+                        end
+                        X = int_garb.stat_subgrps[salc4.atom]
+                        @timeit to "get_Ss" Ss, λSs = get_Rs(W, X, int_garb.symtext)
+                        for S in Ss
+                            N = intersect(int_garb.stat_subgrps[salc3.atom], int_garb.stat_subgrps[int_garb.symtext.atom_map[salc4.atom, S]])
+                            @timeit to "get_Ts" Ts, λTs = get_Rs(M, N, int_garb.symtext)
+                            for (Tidx,T) in enumerate(Ts)
+                                for (abidx,ab) in enumerate(abars[salc1.atom][salc1.bfxn][2])
+                                    for (bbidx,bb) in enumerate(abars[salc2.atom][salc2.bfxn][2])
+                                        for (cbidx,cb) in enumerate(abars[salc3.atom][salc3.bfxn][2])
+                                            for (dbidx,db) in enumerate(abars[salc4.atom][salc4.bfxn][2])
+    # The fun begins
+    # This looks really weird but I don't like how far to the right we've gone...
+    @timeit to "Calc H" begin
+    suum = 0.0
+    for v in V
+        rv = int_garb.symtext.mult_table[R,v]
+        for w in W
+            tw = int_garb.symtext.mult_table[T,w]
+            for x in X
+                tsx = int_garb.symtext.mult_table[T,int_garb.symtext.mult_table[S,x]]
+                for u in U
+                    @timeit to "Sum over G" begin
+                    suuum = 0.0
+                    for g = 1:int_garb.g
+                        gu = int_garb.symtext.mult_table[g,u]
+                        grv = int_garb.symtext.mult_table[g,rv]
+                        gtw = int_garb.symtext.mult_table[g,tw]
+                        gtsx = int_garb.symtext.mult_table[g,tsx]
+                        suuum += int_garb.irrm[salc1.irrep][gu][salc1.i,salc1.r]*int_garb.irrm[salc2.irrep][grv][salc2.i,salc2.r]*int_garb.irrm[salc3.irrep][gtw][salc3.i,salc3.r]*int_garb.irrm[salc4.irrep][gtsx][salc4.i,salc4.r]
+                    end
+                    suum += suuum * int_garb.fxnmap[u][salc1.sh][abidx, salc1.ml]*int_garb.fxnmap[rv][salc2.sh][bbidx, salc2.ml]*int_garb.fxnmap[tw][salc3.sh][cbidx, salc3.ml]*int_garb.fxnmap[tsx][salc4.sh][dbidx, salc4.ml]
+                    end
+                end
+            end
+        end
+    end
+    Rb = int_garb.symtext.atom_map[salc2.atom,R]
+    Tc = int_garb.symtext.atom_map[salc3.atom,T]
+    TSd = int_garb.symtext.atom_map[salc4.atom,int_garb.symtext.mult_table[T,S]]
+
+    suum *= (int_garb.irr_dims[salc1.irrep]*int_garb.irr_dims[salc2.irrep]*int_garb.irr_dims[salc3.irrep]*int_garb.irr_dims[salc4.irrep])/(λTs[Tidx]*(int_garb.g^4))
+    end
+    @timeit to "AO int calc" out = ERI_2e4c(bset, abars[salc1.atom][salc1.bfxn][1], abars[Rb][salc2.bfxn][1], abars[Tc][salc3.bfxn][1], abars[TSd][salc4.bfxn][1])[abidx,bbidx,cbidx,dbidx]
+    eri[s1,s2,s3,s4] += suum*out*salc1.γ*salc2.γ*salc3.γ*salc4.γ
+                                            end
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    end
+    #display()
+    println(findmax(broadcast(abs, eri-SERI)))
+    show(to)
+    return 0
+    #return eri
+end

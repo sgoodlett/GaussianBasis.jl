@@ -143,25 +143,27 @@ function salc_irreps(ct)
 end
 
 #function that adds to the salc struct if lcao is unique
-
 function addlcao!(salcs, salc, ir, irrep, stevie_boy, atomidx, bfxnidx, l, ml, gammas)
     New = []
     for r = 1:size(salc)[1]
     for (i,s) in enumerate(salc[:,r]) # i is for Stevie boy, r = 1 always! WRONG STUPID
+        if length(salcs[ir].lcao) > 0
+            jimbo = reduce(hcat, salcs[ir].lcao)
+        end
         check = true
         if gammas[i,r] == 0.0
             check = false
         end
         for y in salcs[ir].lcao
-            if isapprox(s, y, atol = 1e-6)
+            if isapprox(s, y, atol = 1e-6) #|| isapprox(s, -y, atol = 1e-6)
+                check = false
+                break
+            elseif length(salcs[ir].lcao) > 1 && rank(hcat(jimbo, s)) <= rank(jimbo)
                 check = false
                 break
             end
         end
         if check
-	    #println("s $s")
-	    #t = [(s...)...]
-	    #println("t $t")
             push!(salcs[ir].lcao, s)
             push!(New, s)
             push!(stevie_boy, SALC(s, irrep, atomidx, bfxnidx, l+1, ml, i, r, gammas[i,r]))
@@ -280,16 +282,22 @@ function ProjectionOp(mol, bset, symtext)
 	    so_irrep = vcat(so_irrep, fill(i, size(salcs[i].lcao)[1]))
 	    salcs[i].lcao = sal
     end
-    bigg = reshape(bigg, bset.nbas, bset.nbas) 
+    poo_factor = floor(Int64,size(bigg)[1]//bset.nbas)-bset.nbas
+    #println("Beanboozled: $(size(bigg)[1]) und $(bset.nbas) und $(floor(Int64,size(bigg)[1]//bset.nbas))")
+    bigg = reshape(bigg, bset.nbas, bset.nbas+poo_factor) 
     bigg = convert(Array{Float64}, bigg)
     #println("Stevie boy: \n$(stevie_boy)\n\n")
-    #sort!(stevie_boy, by = x->(x.irrep, x.atom, x.bfxn, x.i)) # Don't sort by x.irrep bc this can backfire for Ih where G and H come before T
-    sort!(stevie_boy, by = x->(Molecules.Symmetry.CharacterTables.irrep_sort_idx(x.irrep), x.atom, x.bfxn, x.i, x.r))
-    #salc_chk = LinearAlgebra.det(bigg)
-    #if abs(salc_chk) < 1e-8
-    #    display(bigg)
-    #    throw(ErrorException("Oh fook, the SALCs are linearly dependent!!!"))
-    #end
+    #sort!(stevie_boy, by = x->(Molecules.Symmetry.CharacterTables.irrep_sort_idx(x.irrep), x.atom, x.bfxn, x.i, x.r))
+    sort!(stevie_boy, by = x->(Molecules.Symmetry.CharacterTables.irrep_sort_idx(x.irrep)))
+    if poo_factor == 0
+        salc_chk = LinearAlgebra.det(bigg)
+        if abs(salc_chk) < 1e-8
+            display(bigg)
+            throw(ErrorException("Oh fook, the SALCs are linearly dependent!!!"))
+        end
+    else
+        println("Poo factor in use ($poo_factor), cannot check SALCs for linear dependence")
+    end
     return salcs, bigg, so_irrep, stevie_boy, rotated#, symtext
 end
 
