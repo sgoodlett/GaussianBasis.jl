@@ -1,13 +1,3 @@
-# Shell is probs a bad name, actually bfxn idx
-struct Stalc
-    coeffs::Vector{Float64}
-    irrep::String
-    atom::Int64
-    sh::Int64
-    i::Int64
-    j::Int64
-    γ::Float64
-end
 
 function get_atom_subgroup(atomidx, symtext)
     subgroup = []
@@ -99,11 +89,11 @@ function special_Rs(U, symtext)
 end
 
 struct IntGarbage
-    symtext
+    symtext::Molecules.Symmetry.CharacterTables.SymText
     irrm
     fxnmap
     stat_subgrps
-    g
+    g::Int64
     irr_dims
 end
 
@@ -270,6 +260,40 @@ function sintegrals(mol::Vector{Molecules.Atom}, basis, int_type, symtext)
     return 0
 end
 
+function calcH(H, int_garb, to, U, V, W, X, R, S, T, λTs, Tidx, salc1, salc2, salc3, salc4, abidx, bbidx, cbidx, dbidx)
+    Hs = [0.0 for i = 1:Threads.nthreads()]
+    @sync begin
+    for v in V
+        #Ht = Hs[Threads.threadid()]
+        rv = int_garb.symtext.mult_table[R,v]
+        for w in W
+            tw = int_garb.symtext.mult_table[T,w]
+            for x in X
+                tsx = int_garb.symtext.mult_table[T,int_garb.symtext.mult_table[S,x]]
+                for u in U
+                    #@timeit to "Sum over G" begin
+                    Threads.@spawn begin
+                    #Ht = Hs[Threads.threadid()]
+                    suuum = 0.0
+                    for g = 1:int_garb.g
+                        gu = int_garb.symtext.mult_table[g,u]
+                        grv = int_garb.symtext.mult_table[g,rv]
+                        gtw = int_garb.symtext.mult_table[g,tw]
+                        gtsx = int_garb.symtext.mult_table[g,tsx]
+                        suuum += int_garb.irrm[salc1.irrep][gu][salc1.i,salc1.r]*int_garb.irrm[salc2.irrep][grv][salc2.i,salc2.r]*int_garb.irrm[salc3.irrep][gtw][salc3.i,salc3.r]*int_garb.irrm[salc4.irrep][gtsx][salc4.i,salc4.r]
+                    end
+                    Hs[Threads.threadid()] += suuum * int_garb.fxnmap[u][salc1.sh][abidx, salc1.ml]*int_garb.fxnmap[rv][salc2.sh][bbidx, salc2.ml]*int_garb.fxnmap[tw][salc3.sh][cbidx, salc3.ml]*int_garb.fxnmap[tsx][salc4.sh][dbidx, salc4.ml]
+                    end
+                end
+            end
+        end
+    end
+    end
+    H = sum(Hs)
+    H *= (int_garb.irr_dims[salc1.irrep]*int_garb.irr_dims[salc2.irrep]*int_garb.irr_dims[salc3.irrep]*int_garb.irr_dims[salc4.irrep])/(λTs[Tidx]*(int_garb.g^4))
+    return H
+end
+
 function stwintegrals(mol::String, bset)
     mol, symtext = Molecules.Symmetry.CharacterTables.symtext_from_file(mol)
     return stwintegrals(mol, bset, symtext)
@@ -299,17 +323,26 @@ function stwintegrals(mol::Vector{Molecules.Atom}, basis, symtext)
     slength = length(salcs)
     eri = zeros(Float64, slength, slength, slength, slength)
     @timeit to "My Ints" begin
-    for (s1,salc1) = enumerate(salcs)
+    for s1 = 1:slength
+        salc1 = salcs[s1]
         U = int_garb.stat_subgrps[salc1.atom]
         println("*Salc 1: $s1")
-        for (s2,salc2) = enumerate(salcs)
+        for s2 = s1:slength
+            salc2 = salcs[s2]
             V = int_garb.stat_subgrps[salc2.atom]
             @timeit to "get_Rs" Rs, λRs = get_Rs(U, V, int_garb.symtext)
             for R in Rs
                 M = intersect(int_garb.stat_subgrps[salc1.atom], int_garb.stat_subgrps[int_garb.symtext.atom_map[salc2.atom, R]])
-                for (s3,salc3) = enumerate(salcs)
+                for s3 = 1:slength
+                    salc3 = salcs[s3]
                     W = int_garb.stat_subgrps[salc3.atom]
-                    for (s4,salc4) = enumerate(salcs)
+                    for s4 = s3:slength
+                        salc4 = salcs[s4]
+                        i12 = GaussianBasis.index2(s1, s2)
+                        i34 = GaussianBasis.index2(s3, s4)
+                        if i12 < i34
+                            continue
+                        end
                         if !tran_as_A1([salc1.irrep, salc2.irrep, salc3.irrep, salc4.irrep], symtext)
                             continue
                         end
@@ -326,37 +359,42 @@ function stwintegrals(mol::Vector{Molecules.Atom}, basis, symtext)
     # The fun begins
     # This looks really weird but I don't like how far to the right we've gone...
     @timeit to "Calc H" begin
-    suum = 0.0
-    for v in V
-        rv = int_garb.symtext.mult_table[R,v]
-        for w in W
-            tw = int_garb.symtext.mult_table[T,w]
-            for x in X
-                tsx = int_garb.symtext.mult_table[T,int_garb.symtext.mult_table[S,x]]
-                for u in U
-                    @timeit to "Sum over G" begin
-                    suuum = 0.0
-                    for g = 1:int_garb.g
-                        gu = int_garb.symtext.mult_table[g,u]
-                        grv = int_garb.symtext.mult_table[g,rv]
-                        gtw = int_garb.symtext.mult_table[g,tw]
-                        gtsx = int_garb.symtext.mult_table[g,tsx]
-                        suuum += int_garb.irrm[salc1.irrep][gu][salc1.i,salc1.r]*int_garb.irrm[salc2.irrep][grv][salc2.i,salc2.r]*int_garb.irrm[salc3.irrep][gtw][salc3.i,salc3.r]*int_garb.irrm[salc4.irrep][gtsx][salc4.i,salc4.r]
-                    end
-                    suum += suuum * int_garb.fxnmap[u][salc1.sh][abidx, salc1.ml]*int_garb.fxnmap[rv][salc2.sh][bbidx, salc2.ml]*int_garb.fxnmap[tw][salc3.sh][cbidx, salc3.ml]*int_garb.fxnmap[tsx][salc4.sh][dbidx, salc4.ml]
-                    end
-                end
-            end
-        end
+    H = 0.0
+    H = calcH(H, int_garb, to, U, V, W, X, R, S, T, λTs, Tidx, salc1, salc2, salc3, salc4, abidx, bbidx, cbidx, dbidx)
     end
     Rb = int_garb.symtext.atom_map[salc2.atom,R]
     Tc = int_garb.symtext.atom_map[salc3.atom,T]
     TSd = int_garb.symtext.atom_map[salc4.atom,int_garb.symtext.mult_table[T,S]]
-
-    suum *= (int_garb.irr_dims[salc1.irrep]*int_garb.irr_dims[salc2.irrep]*int_garb.irr_dims[salc3.irrep]*int_garb.irr_dims[salc4.irrep])/(λTs[Tidx]*(int_garb.g^4))
-    end
     @timeit to "AO int calc" out = ERI_2e4c(bset, abars[salc1.atom][salc1.bfxn][1], abars[Rb][salc2.bfxn][1], abars[Tc][salc3.bfxn][1], abars[TSd][salc4.bfxn][1])[abidx,bbidx,cbidx,dbidx]
-    eri[s1,s2,s3,s4] += suum*out*salc1.γ*salc2.γ*salc3.γ*salc4.γ
+    @timeit to "Int assignment" begin
+        troot = H*out*salc1.γ*salc2.γ*salc3.γ*salc4.γ
+        eri[s1,s2,s3,s4] += troot
+        if s1 != s2
+            eri[s2,s1,s3,s4] += troot
+            if s3 != s4
+                eri[s1,s2,s4,s3] += troot
+                eri[s2,s1,s4,s3] += troot
+                if i12 != i34
+                    eri[s3,s4,s1,s2] += troot
+                    eri[s3,s4,s2,s1] += troot
+                    eri[s4,s3,s1,s2] += troot
+                    eri[s4,s3,s2,s1] += troot
+                end
+            elseif i12 != i34
+                eri[s3,s4,s1,s2] += troot
+                eri[s3,s4,s2,s1] += troot
+            end
+        elseif s3 != s4
+            eri[s1,s2,s4,s3] += troot
+            if i12 != i34
+                eri[s3,s4,s1,s2] += troot    
+                eri[s4,s3,s1,s2] += troot    
+            end
+        elseif i12 != i34
+            eri[s3,s4,s1,s2] += troot
+        end
+        
+    end
                                             end
                                         end
                                     end

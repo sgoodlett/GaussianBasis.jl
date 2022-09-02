@@ -1,7 +1,3 @@
-using Molecules
-
-
-#indices 
 
 struct SALC{F<:Real,I<:Integer}
     coeffs::Vector{F}
@@ -16,60 +12,10 @@ struct SALC{F<:Real,I<:Integer}
 end
 
 mutable struct SALCblock
-    irrep
-    lcao
+    irrep::String
+    lcao::Array{Float64,2}
 end
 
-
-include("SHRotations.jl")
-
-
-c3 = cos(π/3)
-s3 = sin(π/3)
-c5 = cos(π/5)
-s5 = sin(π/5)
-c25 = cos(2π/5)
-s25 = sin(2π/5)
-#irrm_C2v = Dict(
-#    "A1" => [[1],[1],[1],[1]],
-#    "A2" => [[1],[1],[-1],[-1]],
-#    "B1" => [[1],[-1],[1],[-1]],
-#    "B2" => [[1],[-1],[-1],[1]])
-#
-#irrm_C3v = Dict(
-#    "A1" => [[1],[1],[1],[1],[1],[1]],
-#    "A2" => [[1],[1],[1],[-1],[-1],[-1]],
-#    "E"  => [[1 0;0 1], [-c3 -s3; s3 -c3], [-c3 s3; -s3 -c3], [1 0;0 -1], [-c3 -s3; -s3 c3], [-c3 s3; s3 c3]])
-#    #"E"  => [[1 0;0 1], [-c3 -s3; s3 -c3], [-c3 s3; -s3 -c3], [-c3 -s3; -s3 c3], [1 0;0 -1],  [-c3 s3; s3 c3]])
-#
-#    irrm_Td  = Dict(
-#        "A1" => [ [1], # E
-#                  [1], [1], [1], [1], [1], [1], [1], [1], # C3
-#                  [1], [1], [1], # C2
-#                  [1], [1], [1], [1], [1], [1], # σd
-#                  [1], [1], [1], [1], [1], [1]], # S4
-#        "A2" => [ [1], 
-#                  [1], [1], [1], [1], [1], [1], [1], [1], 
-#                  [1], [1], [1], 
-#                  [-1],[-1],[-1],[-1],[-1],[-1],
-#                  [-1],[-1],[-1],[-1],[-1],[-1]],
-#        "E"  => [[1 0;0 1],
-#                 [-c3 -s3; s3 -c3],[-c3 s3; -s3 -c3],[-c3 -s3; s3 -c3],[-c3 s3; -s3 -c3],[-c3 -s3; s3 -c3],[-c3 s3; -s3 -c3],[-c3 -s3; s3 -c3],[-c3 s3; -s3 -c3],
-#                 [1 0;0 1],[1 0;0 1],[1 0;0 1],
-#                 [1 0; 0 -1],[1 0; 0 -1],[-c3 s3; s3 c3],[-c3 s3; s3 c3],[-c3 -s3; -s3 c3],[-c3 -s3; -s3 c3],
-#                 [-c3 -s3; -s3 c3],[-c3 -s3; -s3 c3],[-c3 s3; s3 c3],[-c3 s3; s3 c3],[1 0;0 -1],[1 0;0 -1]],
-#        "T1" => [[1 0 0;0 1 0;0 0 1], # E
-#                 [0 0 1;1 0 0;0 1 0],[0 1 0;0 0 1;1 0 0],[0 0 1;-1 0 0;0 -1 0],[0 -1 0;0 0 -1;1 0 0], # C3 (α,β)
-#                 [0 0 -1;1 0 0;0 -1 0],[0 1 0;0 0 -1;-1 0 0],[0 0 -1;-1 0 0;0 1 0],[0 -1 0;0 0 1;-1 0 0], # C3 (γ,δ)
-#                 [1 0 0;0 -1 0;0 0 -1],[-1 0 0;0 1 0;0 0 -1],[-1 0 0;0 -1 0;0 0 1], # C2 (x,y,z)
-#                 [0 1 0;1 0 0;0 0 -1],[0 -1 0;-1 0 0;0 0 -1],[0 0 1;0 -1 0;1 0 0],[0 0 -1;0 -1 0;-1 0 0],[-1 0 0;0 0 1;0 1 0],[-1 0 0;0 0 -1;0 -1 0], # σd (xy,xz,yz)
-#                 [1 0 0;0 0 1;0 -1 0],[1 0 0;0 0 -1;0 1 0],[0 0 -1;0 1 0;1 0 0],[0 0 1;0 1 0;-1 0 0],[0 1 0;-1 0 0;0 0 1],[0 -1 0;1 0 0;0 0 1]], # S4 (x,y,z)
-#        "T2" => [[1 0 0;0 1 0;0 0 1], # E
-#                 [0 0 1;1 0 0;0 1 0],[0 1 0;0 0 1;1 0 0],[0 0 1;-1 0 0;0 -1 0],[0 -1 0;0 0 -1;1 0 0], # C3 (α,β)
-#                 [0 0 -1;1 0 0;0 -1 0],[0 1 0;0 0 -1;-1 0 0],[0 0 -1;-1 0 0;0 1 0],[0 -1 0;0 0 1;-1 0 0], # C3 (γ,δ)
-#                 [1 0 0;0 -1 0;0 0 -1],[-1 0 0;0 1 0;0 0 -1],[-1 0 0;0 -1 0;0 0 1], # C2 (x,y,z)
-#                 [0 -1 0;-1 0 0;0 0 1],[0 1 0;1 0 0;0 0 1],[0 0 -1;0 1 0;-1 0 0],[0 0 1;0 1 0;1 0 0],[1 0 0;0 0 -1;0 -1 0],[1 0 0;0 0 1;0 1 0], # σd (xy,xz,yz)
-#                 [-1 0 0;0 0 -1;0 1 0],[-1 0 0;0 0 1;0 -1 0],[0 0 1;0 -1 0;-1 0 0],[0 0 -1;0 -1 0;1 0 0],[0 -1 0;1 0 0;0 0 -1],[0 1 0;-1 0 0;0 0 -1]]) # S4 (x,y,z)
 #for a basis function that is mapped onto a SEA (atom1 -> atom2)
 #we need a way of finding the index of that basis function on atom 2
 
@@ -133,39 +79,36 @@ end
 
 #initialize the salc structure per irrep of pg
 
-function salc_irreps(ct)
+function salc_irreps(ct, bset)
     salcs = []
     for i in ct.irreps
         #println("Irrep $i")
-        push!(salcs, SALCblock(i, []))
+        push!(salcs, SALCblock(i, Array{Float64}(undef,bset.nbas,0)))
     end
     return salcs
 end
 
 #function that adds to the salc struct if lcao is unique
 function addlcao!(salcs, salc, ir, irrep, stevie_boy, atomidx, bfxnidx, l, ml, gammas)
-    New = []
+    #New = []
     for r = 1:size(salc)[1]
     for (i,s) in enumerate(salc[:,r]) # i is for Stevie boy, r = 1 always! WRONG STUPID
-        if length(salcs[ir].lcao) > 0
-            jimbo = reduce(hcat, salcs[ir].lcao)
-        end
         check = true
         if gammas[i,r] == 0.0
             check = false
         end
-        for y in salcs[ir].lcao
+        for y in eachcol(salcs[ir].lcao)
             if isapprox(s, y, atol = 1e-6) #|| isapprox(s, -y, atol = 1e-6)
                 check = false
                 break
-            elseif length(salcs[ir].lcao) > 1 && rank(hcat(jimbo, s)) <= rank(jimbo)
+            elseif length(salcs[ir].lcao) > 1 && rank(hcat(salcs[ir].lcao, s)) <= rank(salcs[ir].lcao)
                 check = false
                 break
             end
         end
         if check
-            push!(salcs[ir].lcao, s)
-            push!(New, s)
+            #push!(salcs[ir].lcao, s)
+            salcs[ir].lcao = hcat(salcs[ir].lcao, s)
             push!(stevie_boy, SALC(s, irrep, atomidx, bfxnidx, l+1, ml, i, r, gammas[i,r]))
         end
     end
@@ -175,29 +118,15 @@ end
 
 
 #non-abelian projection operator for real-spherical harmonics
-
 function ProjectionOp(mol, bset, symtext)
     stevie_boy = Vector{SALC}()
-    #mol,symtext = Molecules.Symmetry.CharacterTables.symtext_from_mol(mol)
-    #mol = Molecules.translate(mol, Molecules.center_of_mass(mol))
     D = Molecules.Symmetry.buildD(mol)
     SEAs = Molecules.Symmetry.findSEA(D, 5)
-    
     maxam = maxamcheck(bset)
     rotated = collectRotations(maxam, symtext.symels)
-    #for j = 1:5
-    #    v = zeros((5,1))
-    #    for i = 1:4
-    #        v += rotated[i][3][:,j]
-    #    end
-    #    v *= 1/sqrt(v⋅v)
-    #    display(v)
-    #end
-    #display(rotated[2][3])
-    salcs = salc_irreps(symtext.ctab)
+    salcs = salc_irreps(symtext.ctab, bset)
     nbas_vec = bset.basis_per_atom
     outers = basis_am(bset)
-    span = Any[]
     
     #loop over SEA sets
     basis = 1
@@ -209,11 +138,7 @@ function ProjectionOp(mol, bset, symtext)
                     basis += nbas_vec[atom_idx]
                 else
                     push!(sea_chk, sea_idx)
-                    #for sea in 1:length(SEAs)
                     equivatom = SEAs[sea_idx].set[1]
-                    #sealength = length(SEAs[sea].set)
-                    #println("Sealength $sealength")
-                    #loop over basis function on center on each equivatom
                     bsfxn_counter = 0
                     for (k, l) in enumerate(outers[equivatom])
                         for ml in 1:2*l + 1
@@ -225,12 +150,7 @@ function ProjectionOp(mol, bset, symtext)
                                 irrmat = eval(Meta.parse("Molecules.Symmetry.CharacterTables.irrm_$(symtext.pg)"))[irrep]
                                 dims = size(irrmat[1])
                                 salc = [zeros(bset.nbas) for x in 1:dims[1], y in 1:dims[1]]
-                                #salc = zeros(bset.nbas) for x in 1:dims[1], y in 1:dims[1]
                                 salc = projection(salc, bset, symtext, irrep, irrmat, rotated, l, ml, equivatom, basis, nbas_vec, sea)
-                                #println("atom: $atom_idx, k: $k, l,ml: $l, $ml, irrep: $irrep")
-                                #if irrep == "A1"
-                                #    println(salc)
-                                #end
                                 chk = false
                                 for brodx = 1:dims[1]
                                     if sum(broadcast(abs, salc[1, brodx])) > 1e-8
@@ -239,12 +159,10 @@ function ProjectionOp(mol, bset, symtext)
                                     end
                                 end
                                 if chk #sum(broadcast(abs, salc[1])) > 1e-14
-                                    #println("irrep, salc*** $irrep $salc")
                                     gammas = zeros(Float64, dims)
                                     for (i, salcy) in enumerate(salc)
                                         #find largest element by magnitude
                                         #convention for these salcs: largest element in salc needs to be positive, apply to pfs
-                                    
                                         index = findmax(broadcast(abs, salcy))
                                         if index[1] < 1e-7
                                             continue
@@ -262,7 +180,6 @@ function ProjectionOp(mol, bset, symtext)
                                         end
                                         gammas[i] = γ
                                     end
-                                    #salcs = addlcao!(salcs, salc, ir, irrep, stevie_boy, equivatom, k+ml-1, l, ml, gammas)
                                     salcs = addlcao!(salcs, salc, ir, irrep, stevie_boy, equivatom, bsfxn_counter, l, ml, gammas)
                                 end 
                             end
@@ -283,10 +200,8 @@ function ProjectionOp(mol, bset, symtext)
 	    salcs[i].lcao = sal
     end
     poo_factor = floor(Int64,size(bigg)[1]//bset.nbas)-bset.nbas
-    #println("Beanboozled: $(size(bigg)[1]) und $(bset.nbas) und $(floor(Int64,size(bigg)[1]//bset.nbas))")
     bigg = reshape(bigg, bset.nbas, bset.nbas+poo_factor) 
     bigg = convert(Array{Float64}, bigg)
-    #println("Stevie boy: \n$(stevie_boy)\n\n")
     #sort!(stevie_boy, by = x->(Molecules.Symmetry.CharacterTables.irrep_sort_idx(x.irrep), x.atom, x.bfxn, x.i, x.r))
     sort!(stevie_boy, by = x->(Molecules.Symmetry.CharacterTables.irrep_sort_idx(x.irrep)))
     if poo_factor == 0
