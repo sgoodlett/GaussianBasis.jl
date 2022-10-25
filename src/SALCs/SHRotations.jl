@@ -105,7 +105,7 @@ function adapt(rot)
     return rrot
 end
 function generateRotations(Lmax, rot)
-    Rsh = Any[]
+    Rsh = Matrix{Float64}[]
     rrot = adapt(rot)
     #rrot = rot
     #println("Rotates rot ", rrot)

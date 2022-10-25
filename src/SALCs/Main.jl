@@ -54,7 +54,8 @@ end
 
 #build the vector of SH rotation arrays 
 function collectRotations(maxam,symels)
-    rotated = []
+    rotated = Vector{Matrix{Float64}}[]
+    #rotated = Vector{Matrix{Float64}}
     for i in 1:length(symels)
         push!(rotated, generateRotations(maxam, symels[i].rrep))
     end
@@ -91,6 +92,7 @@ end
 #function that adds to the salc struct if lcao is unique
 function addlcao!(salcs, salc, ir, irrep, stevie_boy, atomidx, bfxnidx, l, ml, gammas)
     #New = []
+    rank_atol = 1e-10
     for r = 1:size(salc)[1]
     for (i,s) in enumerate(salc[:,r]) # i is for Stevie boy, r = 1 always! WRONG STUPID
         check = true
@@ -101,7 +103,7 @@ function addlcao!(salcs, salc, ir, irrep, stevie_boy, atomidx, bfxnidx, l, ml, g
             if isapprox(s, y, atol = 1e-6) #|| isapprox(s, -y, atol = 1e-6)
                 check = false
                 break
-            elseif length(salcs[ir].lcao) > 1 && rank(hcat(salcs[ir].lcao, s)) <= rank(salcs[ir].lcao)
+            elseif length(salcs[ir].lcao) > 1 && rank(hcat(salcs[ir].lcao, s), atol=rank_atol) <= rank(salcs[ir].lcao, atol=rank_atol)
                 check = false
                 break
             end
