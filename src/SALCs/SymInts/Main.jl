@@ -122,11 +122,7 @@ function special_Rs(U, symtext)
     return 0
 end
 
-function convert()
-
-end
-
-struct IntGarbage
+struct IntCollect
     symtext::Molecules.Symmetry.CharacterTables.SymText
     irrm::Dict{String, Vector{AbstractArray{Float64}}}
     fxnmap::Vector{Vector{Matrix{Float64}}}
@@ -135,72 +131,71 @@ struct IntGarbage
     irr_dims::Dict{String, Int64}
 end
 
-function Λfxn(garbo::IntGarbage, salc, ab, p, R::Int64)
+function Λfxn(intcol::IntCollect, salc, ab, p, R::Int64)
     out = 0.0
-    for U in garbo.stat_subgrps[salc.atom]
-        RU = garbo.symtext.mult_table[R, U]
-        out += garbo.fxnmap[RU][salc.sh][ab, salc.ml]*garbo.irrm[salc.irrep][RU][p,salc.r]
+    irrm = intcol.irrm[salc.irrep]
+    for U in intcol.stat_subgrps[salc.atom]
+        RU = intcol.symtext.mult_table[R, U]
+        out += intcol.fxnmap[RU][salc.sh][ab, salc.ml]*irrm[RU][p,salc.r]
     end
-    return out * garbo.irr_dims[salc.irrep] / garbo.g
+    return out * intcol.irr_dims[salc.irrep] / intcol.g
 end
 
 # Same function but R=1
-function Λfxn(garbo::IntGarbage, salc, ab, p, printstuff=false)
+function Λfxn(intcol::IntCollect, salc, ab, p, printstuff=false)
     out = 0.0
-    for U in garbo.stat_subgrps[salc.atom]
-        if printstuff
-            println("C[$U, $(salc.sh), $ab, $(salc.ml)] = $(garbo.fxnmap[U][salc.sh][ab, salc.ml])")
-        end
-        out += garbo.fxnmap[U][salc.sh][ab, salc.ml]*garbo.irrm[salc.irrep][U][p,salc.r]
+    irrm = intcol.irrm[salc.irrep]
+    for U in intcol.stat_subgrps[salc.atom]
+        out += intcol.fxnmap[U][salc.sh][ab, salc.ml]*irrm[U][p,salc.r]
     end
-    return out * garbo.irr_dims[salc.irrep] / garbo.g
+    return out * intcol.irr_dims[salc.irrep] / intcol.g
 end
 
-function Γfxn(garbo::IntGarbage, salc1, salc2, ab, bb, R, λr, printstuff::Bool)
+function Γfxn(intcol::IntCollect, salc1, salc2, ab, bb, R, λr, printstuff::Bool)
     out = 0.0
-    for p = 1:garbo.irr_dims[salc1.irrep]
-        porque1 = Λfxn(garbo, salc1, ab, p, printstuff)
-        porque2 = Λfxn(garbo, salc2, bb, p, R)
+    for p = 1:intcol.irr_dims[salc1.irrep]
+        l1 = Λfxn(intcol, salc1, ab, p, printstuff)
+        l2 = Λfxn(intcol, salc2, bb, p, R)
         if printstuff
-            println("p: $p, Λ: $porque1, Λ(R): $porque2")
+            println("p: $p, Λ: $l1, Λ(R): $l2")
         end
-        out += Λfxn(garbo, salc1, ab, p) * Λfxn(garbo, salc2, bb, p, R)
+        out += Λfxn(intcol, salc1, ab, p) * Λfxn(intcol, salc2, bb, p, R)
     end
-    return out * garbo.g/(garbo.irr_dims[salc1.irrep] * λr)
+    return out * intcol.g/(intcol.irr_dims[salc1.irrep] * λr)
 end
 
-function get_garbage(mol, symtext, bset)
+function get_IntCollect(mol, symtext, bset)
     irrm = eval(Meta.parse("Molecules.Symmetry.CharacterTables.irrm_"*symtext.pg))
     subgrps = Vector{Int64}[]
     for A in 1:length(mol)
         push!(subgrps, get_atom_subgroup(A, symtext))
     end
-    aotoso, ignore_this, stalcs, doodad = GaussianBasis.SALCs.ProjectionOp(mol, bset, symtext)[2:5]
-    return IntGarbage(symtext, irrm, doodad, subgrps, symtext.order, symtext.ctab.irrep_dims), stalcs, aotoso
+    aotoso, ignore_this, salcs, bfxn_map = GaussianBasis.SALCs.ProjectionOp(mol, bset, symtext)[2:5]
+    return IntCollect(symtext, irrm, bfxn_map, subgrps, symtext.order, symtext.ctab.irrep_dims), salcs, aotoso
 end
 
 function get_Stalcs(mol, bset)
-    stalcs, doodad = GaussianBasis.SALCs.ProjectionOp(mol, bset)[4:5]
-    return stalcs, doodad
+    salcs, bfxn_map = GaussianBasis.SALCs.ProjectionOp(mol, bset)[4:5]
+    return salcs, bfxn_map
 end
 
-function build_thang(bset::BasisSet)
-    thang = []
+function build_abars(bset::BasisSet)
+    abars = []
     sh_ctr = 0
     bfxn_ctr = 0
     for atom = 1:length(bset.atoms)
-        thang2 = []
+        abars2 = []
         for sh_idx = 1:bset.shells_per_atom[atom]
             l = bset[sh_idx+sh_ctr].l
             for l_idx = 1:2l+1
-                push!(thang2, (sh_idx+sh_ctr, collect(1+bfxn_ctr:2l+1+bfxn_ctr)))
+                push!(abars2, (sh_idx+sh_ctr, collect(1+bfxn_ctr:2l+1+bfxn_ctr)))
             end
             bfxn_ctr += 2l+1
         end
         sh_ctr += bset.shells_per_atom[atom]
-        push!(thang, thang2)
+        push!(abars, abars2)
     end
-    return thang
+    return abars
 end
 
 function check_salcs(salcs, aotoso)
@@ -249,22 +244,22 @@ function sintegrals(mol::Vector{Molecules.Atom}, basis, int_type, symtext)
     bset = BasisSet(basis, mol)
     display(mol)
     @timeit to "Get stuff" begin
-    abars = build_thang(bset)
-    int_garb, stalcs, aotoso = get_garbage(mol, symtext, bset) end
+    abars = build_abars(bset)
+    int_garb, salcs, aotoso = get_IntCollect(mol, symtext, bset) end
     @timeit to "Ints hard" begin
-    Sboy = int_type(bset)
-    sym_S = transpose(aotoso) * Sboy * aotoso end
-    #for i = 1:length(stalcs)
-    #    println("Irrep.: $(stalcs[i].irrep), Atom: $(stalcs[i].atom), Bsfxn: $(stalcs[i].bfxn), sh, ml: $(stalcs[i].sh), $(stalcs[i].ml), i,r: $(stalcs[i].i), $(stalcs[i].r), Factor:$(stalcs[i].γ)")
+    S_hard = int_type(bset)
+    sym_S = transpose(aotoso) * S_hard * aotoso end
+    #for i = 1:length(salcs)
+    #    println("Irrep.: $(salcs[i].irrep), Atom: $(salcs[i].atom), Bsfxn: $(salcs[i].bfxn), sh, ml: $(salcs[i].sh), $(salcs[i].ml), i,r: $(salcs[i].i), $(salcs[i].r), Factor:$(salcs[i].γ)")
     #end
-    println("Max dif. in salcs: ", findmax(broadcast(abs, check_salcs(stalcs, aotoso)))[1])
-    slength = length(stalcs)
+    println("Max dif. in salcs: ", findmax(broadcast(abs, check_salcs(salcs, aotoso)))[1])
+    slength = length(salcs)
     S = zeros(Float64, slength, slength)
     @timeit to "My Ints" begin
     for s1 = 1:slength
         for s2 = s1:slength
-            salc1 = stalcs[s1]
-            salc2 = stalcs[s2]
+            salc1 = salcs[s1]
+            salc2 = salcs[s2]
             printstuff = false
             if salc1.irrep == salc2.irrep && salc1.i == salc2.i
                 U = int_garb.stat_subgrps[salc1.atom]
@@ -383,8 +378,8 @@ function stwintegrals(mol::Vector{Molecules.Atom}, basis, symtext)
     to = TimerOutput()
     bset = BasisSet(basis, mol)
     @timeit to "Abars and IntGarb" begin
-    abars = build_thang(bset)
-    int_garb, salcs, aotoso = get_garbage(mol, symtext, bset)
+    abars = build_abars(bset)
+    int_garb, salcs, aotoso = get_IntCollect(mol, symtext, bset)
     println("Number of basis functions $(length(salcs))")
     end
     @timeit to "Ints the hard way" begin
@@ -550,16 +545,16 @@ function stwintegrals(mol::Vector{Molecules.Atom}, basis, symtext)
     #return eri
 end
 
-function stwintegrals_fromD(mol::String, basis::String)
+function stwintegrals_fromDirect(mol::String, basis::String, Halg::Int=1)
     mol, symtext = Molecules.Symmetry.CharacterTables.symtext_from_file(mol)
-    return stwintegrals_fromD(mol, basis, symtext)
+    return stwintegrals_fromDirect(mol, basis, symtext, Halg)
 end
 
-function bigD_setup(to, mol, basis, symtext)
+function bigDirect_setup(to, mol, basis, symtext)
     bset = BasisSet(basis, mol)
     @timeit to "Abars and IntGarb" begin
-    abars = build_thang(bset)
-    int_garb, salcs, aotoso = get_garbage(mol, symtext, bset)
+    abars = build_abars(bset)
+    int_garb, salcs, aotoso = get_IntCollect(mol, symtext, bset)
     println("Number of basis functions $(length(salcs))")
     end
     println(check_salcs(salcs, aotoso))
@@ -572,9 +567,42 @@ function bigD_setup(to, mol, basis, symtext)
     return bset, int_garb, salcs, abars, aotoso
 end
 
-function stwintegrals_fromD(mol, basis, symtext)
+function isequiv1(salc1, salc2)
+    chk1 = salc1.irrep == salc2.irrep
+    chk2 = salc1.sh == salc2.sh
+    chk3 = salc1.atom == salc2.atom
+    chk4 = salc1.bfxn == salc2.bfxn
+    chk5 = salc1.r == salc2.r
+    if chk1 && chk2 && chk3 && chk4 && chk5
+        return true
+    end
+    return false
+end
+
+function find_unique_salcs1(salcs)
+    # Group partner functions together
+    out = [[(1,salcs[1])]]
+    groop = [1]
+    for (sidx,salc) in enumerate(salcs[2:end])
+        chk = false
+        for done_salcs in out
+            if isequiv1(salc, done_salcs[1][2])
+                push!(done_salcs, (sidx+1,salc))
+                push!(groop, done_salcs[1][1])
+                chk = true
+            end
+        end
+        if !chk
+            push!(out, [(sidx+1,salc)])
+            push!(groop, sidx+1)
+        end
+    end
+    return out, groop
+end
+
+function stwintegrals_fromDirect(mol, basis, symtext, Halg::Int)
     to = TimerOutput()
-    bset, int_garb, salcs, abars, aotoso = bigD_setup(to, mol, basis, symtext)
+    bset, int_garb, salcs, abars, aotoso = bigDirect_setup(to, mol, basis, symtext)
     @timeit to "Ints the hard way" begin
         ERI_AO = ERI_2e4c(bset)
         SERI = zeros(bset.nbas, bset.nbas, bset.nbas, bset.nbas)
@@ -582,14 +610,314 @@ function stwintegrals_fromD(mol, basis, symtext)
     end
     slength = length(salcs)
     eri = zeros(Float64, slength, slength, slength, slength)
-    load_bar = "Calculating Integrals\n"*"-"^slength
-    println(load_bar)
+    unique_salcs, groops = find_unique_salcs1(salcs)
+    #display(salcs[29:end])
+    display(unique_salcs[end])
+    println(groops)
+    #println(get_petite_idxs(salcs))
+    #println(length(get_petite_idxs(salcs)))
+    #cg = build_ClebschGordan(int_garb)
+    #return cg
+    load_bar = "Calculating Integrals\n"
+    if Halg < 10
+        load_bar *= "-"^slength
+    else
+        load_bar *= "-"^length(unique_salcs)
+    end
     @timeit to "My Ints" begin
-    for s1 = 1:slength
+    println(load_bar)
+    if Halg < 10
+        for s1 = 1:slength
+            print("*")
+            for s2 = s1:slength
+                for s3 = 1:slength
+                    for s4 = s3:slength
+                        @timeit to "Filter" begin
+                        i12 = GaussianBasis.index2(s1, s2)
+                        i34 = GaussianBasis.index2(s3, s4)
+                        if i12 < i34
+                            continue
+                        end
+                        if !tran_as_A1([salcs[s1].irrep, salcs[s2].irrep, salcs[s3].irrep, salcs[s4].irrep], symtext)
+                            continue
+                        end
+                        end
+                        if (Halg%10) == 1
+                            @timeit to "Direct Symint" troot = stwintegrals_bigDirect(to, bset, salcs, int_garb, abars, s1, s2, s3, s4)
+                        elseif (Halg%10) == 2
+                            @timeit to "Direct Symint" troot = stwintegrals_bigDirect_2(to, bset, salcs, int_garb, abars, s1, s2, s3, s4)
+                        else
+                            X = compute_X(to, bset, salcs, int_garb, abars, s1, s2, s3, s4)
+                            troot = 0.0
+                            salc1 = salcs[s1]
+                            salc2 = salcs[s2]
+                            salc3 = salcs[s3]
+                            salc4 = salcs[s4]
+                            if Halg == 3
+                                D1 = build_Darr(int_garb, salcs[s1].irrep, salc1.i)
+                                D2 = build_Darr(int_garb, salcs[s2].irrep, salc2.i)
+                                D3 = build_Darr(int_garb, salcs[s3].irrep, salc3.i)
+                                D4 = build_Darr(int_garb, salcs[s4].irrep, salc4.i)
+                                suum = zeros(Float64, (int_garb.irr_dims[salc1.irrep],int_garb.irr_dims[salc2.irrep],int_garb.irr_dims[salc3.irrep],int_garb.irr_dims[salc4.irrep]))
+                                for g = 1:int_garb.g
+                                    suum += trout[g,g,g,g]
+                                end
+                                @timeit to "Contract" @tensoropt trout[g1,g2,g3,g4] := D1[g1,ib]*D2[g2,jb]*D3[g3,kb]*D4[g4,lb]*X[ib,jb,kb,lb]
+                                #suum = 0.0
+                                #for g = 1:int_garb.g
+                                #    suum += trout[g,g,g,g]
+                                #end
+                                troot += suum
+                            else
+                                @timeit to "Contract" begin
+                                for ib = 1:int_garb.irr_dims[salc1.irrep]
+                                    for jb = 1:int_garb.irr_dims[salc2.irrep]
+                                        for kb = 1:int_garb.irr_dims[salc3.irrep]
+                                            for lb = 1:int_garb.irr_dims[salc4.irrep]
+                                                trout = 0.0
+                                                for g = 1:int_garb.g
+                                                    trout += int_garb.irrm[salc1.irrep][g][salc1.i,ib]*int_garb.irrm[salc2.irrep][g][salc2.i,jb]*int_garb.irrm[salc3.irrep][g][salc3.i,kb]*int_garb.irrm[salc4.irrep][g][salc4.i,lb]
+                                                end
+                                                troot += trout*X[ib,jb,kb,lb]
+                                            end
+                                        end
+                                    end
+                                end
+                                end
+                            end
+                            troot *= salc1.γ * salc2.γ * salc3.γ * salc4.γ
+                        end
+                        @timeit to "Fill ERI Array" begin
+                        eri[s1,s2,s3,s4] += troot
+                        if s1 != s2
+                            eri[s2,s1,s3,s4] += troot
+                            if s3 != s4
+                                eri[s1,s2,s4,s3] += troot
+                                eri[s2,s1,s4,s3] += troot
+                                if i12 != i34
+                                    eri[s3,s4,s1,s2] += troot
+                                    eri[s3,s4,s2,s1] += troot
+                                    eri[s4,s3,s1,s2] += troot
+                                    eri[s4,s3,s2,s1] += troot
+                                end
+                            elseif i12 != i34
+                                eri[s3,s4,s1,s2] += troot
+                                eri[s3,s4,s2,s1] += troot
+                            end
+                        elseif s3 != s4
+                            eri[s1,s2,s4,s3] += troot
+                            if i12 != i34
+                                eri[s3,s4,s1,s2] += troot    
+                                eri[s4,s3,s1,s2] += troot    
+                            end
+                        elseif i12 != i34
+                            eri[s3,s4,s1,s2] += troot
+                        end
+                        end
+                    end
+                end
+            end
+        end
+    elseif Halg > 10
+        for s1_tup in unique_salcs
+            s1 = s1_tup[1][1]
+            print("*")
+            for s2_tup in unique_salcs
+                s2 = s2_tup[1][1]
+                s1 > s2 ? continue : nothing
+                for s3_tup in unique_salcs
+                    s3 = s3_tup[1][1]
+                    for s4_tup in unique_salcs
+                        s4 = s4_tup[1][1]
+                        s3 > s4 ? continue : nothing
+                        @timeit to "Filter" begin
+                        i12 = GaussianBasis.index2(s1, s2)
+                        i34 = GaussianBasis.index2(s3, s4)
+                        if i12 < i34
+                            continue
+                        end
+                        if !tran_as_A1([salcs[s1].irrep, salcs[s2].irrep, salcs[s3].irrep, salcs[s4].irrep], symtext)
+                            continue
+                        end
+                        end
+                        if Halg == 15 || Halg == 16
+                            # Compute D(G,i,ib) tensors
+                            # Compute X(ib,jb,kb,lb) tensor
+                            # I(i,j,k,l) = sum over G: contract A(G1,G2,G3,G4) = Da(G1,i,ib)Db(G2,j,jb)Dc(G3,k,kb)Dd(G4,l,lb)X(ib,jb,kb,lb)
+                            salc1 = salcs[s1]
+                            salc2 = salcs[s2]
+                            salc3 = salcs[s3]
+                            salc4 = salcs[s4]
+                            s1irrdim = int_garb.irr_dims[salc1.irrep]
+                            s2irrdim = int_garb.irr_dims[salc2.irrep]
+                            s3irrdim = int_garb.irr_dims[salc3.irrep]
+                            s4irrdim = int_garb.irr_dims[salc4.irrep]
+                            D1 = int_garb.irrm[salc1.irrep]
+                            D2 = int_garb.irrm[salc2.irrep]
+                            D3 = int_garb.irrm[salc3.irrep]
+                            D4 = int_garb.irrm[salc4.irrep]
+                            troot = zeros(Float64, (s1irrdim, s2irrdim, s3irrdim, s4irrdim))
+                            #troot = zeros(Float64, (int_garb.irr_dims[salcs[s1].irrep], int_garb.irr_dims[salcs[s2].irrep], int_garb.irr_dims[salcs[s3].irrep], int_garb.irr_dims[salcs[s4].irrep]))
+                            @timeit to "Compute X" X = compute_X(to, bset, salcs, int_garb, abars, s1, s2, s3, s4)
+                            if Halg == 15
+                                for i = 1:s1irrdim
+                                    for ib = 1:s1irrdim
+                                        for j = 1:s2irrdim
+                                            for jb = 1:s2irrdim
+                                                for k = 1:s3irrdim
+                                                    for kb = 1:s3irrdim
+                                                        for l = 1:s4irrdim
+                                                            for lb = 1:s4irrdim
+                                                                @timeit to "Contract over G" begin
+                                                                trout = 0.0
+                                                                for g = 1:int_garb.g
+                                                                    #trout += int_garb.irrm[salc1.irrep][g][i,ib]*int_garb.irrm[salc2.irrep][g][j,jb]*int_garb.irrm[salc3.irrep][g][k,kb]*int_garb.irrm[salc4.irrep][g][l,lb]
+                                                                    trout += D1[g][i,ib]*D2[g][j,jb]*D3[g][k,kb]*D4[g][l,lb]
+                                                                end
+                                                                end
+                                                                troot[i,j,k,l] += trout*X[ib,jb,kb,lb]
+                                                            end
+                                                        end
+                                                    end
+                                                #troot[i,j,k,l] *= salcs[s1].γ * salcs[s2].γ * salcs[s3].γ * salcs[s4].γ
+                                                end
+                                            end
+                                        end
+                                    end
+                                end
+                                if s1 == 4 && s2 == 4 && s3 == 4 && s4 ==4
+                                    println(troot[1,1,1,1])
+                                end
+                            elseif Halg == 16
+                                for ib = 1:s1irrdim
+                                    for jb = 1:s2irrdim
+                                        for kb = 1:s3irrdim
+                                            for lb = 1:s4irrdim
+                                                @timeit to "Contract over G" begin
+                                                trout = 0.0
+                                                for g = 1:int_garb.g
+                                                    trout += D1[g][salc1.i,ib]*D2[g][salc2.i,jb]*D3[g][salc3.i,kb]*D4[g][salc4.i,lb]
+                                                end
+                                                end
+                                                troot[salc1.i,salc2.i,salc3.i,salc4.i] += trout*X[ib,jb,kb,lb]
+                                            end
+                                        end
+                                    end
+                                end
+                                @timeit to "Distribute to subspecies" begin
+                                ref = troot[salc1.i,salc2.i,salc3.i,salc4.i]
+                                for i = 1:s1irrdim
+                                    for j = 1:s2irrdim
+                                        for k = 1:s3irrdim
+                                            for l = 1:s4irrdim
+                                                boot = 0.0
+                                                for g = 1:int_garb.g
+                                                    boot += D1[g][salc1.i,i]*D2[g][salc2.i,j]*D3[g][salc3.i,k]*D4[g][salc4.i,l]
+                                                end
+                                                troot[i,j,k,l] = boot*ref
+                                            end
+                                        end
+                                    end
+                                end
+                                #troot *= sqrt(s1irrdim*s2irrdim*s3irrdim*s4irrdim)/int_garb.g
+                                #troot *= s1irrdim/int_garb.g
+                                if true #s1 == s2 && s3 == s4 && s1 == s3
+                                    troot *= s1irrdim / int_garb.g
+                                else
+                                    troot *= sqrt(s1irrdim*s2irrdim*s3irrdim*s4irrdim)/int_garb.g
+                                end
+                            end
+                            end
+                            #troot .*= salcs[s1].γ * salcs[s2].γ * salcs[s3].γ * salcs[s4].γ
+                            @timeit to "Int Assignment" begin
+                            for (s1_d_idx,s1_d) in enumerate(s1_tup)
+                                for (s2_d_idx,s2_d) in enumerate(s2_tup)
+                                    for (s3_d_idx,s3_d) in enumerate(s3_tup)
+                                        for (s4_d_idx,s4_d) in enumerate(s4_tup)
+                                            s1_d[1] > s2_d[1] ? continue : nothing
+                                            s3_d[1] > s4_d[1] ? continue : nothing
+                                            i12 = GaussianBasis.index2(groops[s1_d[1]],groops[s2_d[1]])
+                                            i34 = GaussianBasis.index2(groops[s3_d[1]],groops[s4_d[1]])
+                                            i12 < i34 ? continue : nothing
+                                            troots = troot[s1_d_idx,s2_d_idx,s3_d_idx,s4_d_idx]
+                                            troots *= s1_d[2].γ * s2_d[2].γ * s3_d[2].γ * s4_d[2].γ
+                                            eri[s1_d[1],s2_d[1],s3_d[1],s4_d[1]] += troots
+                                            if s1_d[1] != s2_d[1]
+                                                eri[s2_d[1],s1_d[1],s3_d[1],s4_d[1]] += troots
+                                                if s3_d[1] != s4_d[1]
+                                                    eri[s1_d[1],s2_d[1],s4_d[1],s3_d[1]] += troots
+                                                    eri[s2_d[1],s1_d[1],s4_d[1],s3_d[1]] += troots
+                                                    if i12 != i34
+                                                        eri[s3_d[1],s4_d[1],s1_d[1],s2_d[1]] += troots
+                                                        eri[s3_d[1],s4_d[1],s2_d[1],s1_d[1]] += troots
+                                                        eri[s4_d[1],s3_d[1],s1_d[1],s2_d[1]] += troots
+                                                        eri[s4_d[1],s3_d[1],s2_d[1],s1_d[1]] += troots
+                                                    end
+                                                elseif i12 != i34
+                                                    eri[s3_d[1],s4_d[1],s1_d[1],s2_d[1]] += troots
+                                                    eri[s3_d[1],s4_d[1],s2_d[1],s1_d[1]] += troots
+                                                end
+                                            elseif s3_d[1] != s4_d[1]
+                                                eri[s1_d[1],s2_d[1],s4_d[1],s3_d[1]] += troots
+                                                if i12 != i34
+                                                    eri[s3_d[1],s4_d[1],s1_d[1],s2_d[1]] += troots
+                                                    eri[s4_d[1],s3_d[1],s1_d[1],s2_d[1]] += troots
+                                                end
+                                            elseif i12 != i34
+                                                eri[s3_d[1],s4_d[1],s1_d[1],s2_d[1]] += troots
+                                            end
+                                        end
+                                    end
+                                end
+                            end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        end
+    end
+    print("\n")
+    println(findmax(broadcast(abs, eri-SERI)))
+    #println(eri[9,6,7,7])
+    #println(broadcast(abs, eri[4:6,4:6,7:9,7:9]-SERI[4:6,4:6,7:9,7:9]))
+    show(to)
+end
+
+function RestrictedIntegrals(mol::String, basis::String)
+    mol, symtext = Molecules.Symmetry.CharacterTables.symtext_from_file(mol)
+    return RestrictedIntegrals(mol, basis, symtext)
+end
+
+function RestrictedIntegrals(mol, basis, symtext)
+    to = TimerOutput()
+    bset, int_garb, salcs, abars, aotoso = bigDirect_setup(to, mol, basis, symtext)
+    @timeit to "Ints the hard way" begin
+        ERI_AO = ERI_2e4c(bset)
+        SERI = zeros(bset.nbas, bset.nbas, bset.nbas, bset.nbas)
+        @tensoropt SERI[i,j,k,l] =  aotoso[μ, i]*aotoso[ν, j]*ERI_AO[μ, ν, ρ, σ]*aotoso[ρ, k]*aotoso[σ, l]
+    end
+    slength = length(salcs)
+    eri = zeros(Float64, slength, slength, slength, slength)
+    unique_salcs, groops = find_unique_salcs1(salcs)
+    display(unique_salcs[end])
+    println(groops)
+    load_bar = "Calculating Integrals\n"
+    load_bar *= "-"^length(unique_salcs)
+    @timeit to "My Ints" begin
+    println(load_bar)
+    for s1_tup in unique_salcs
+        s1 = s1_tup[1][1]
         print("*")
-        for s2 = s1:slength
-            for s3 = 1:slength
-                for s4 = s3:slength
+        for s2_tup in unique_salcs
+            s2 = s2_tup[1][1]
+            s1 > s2 ? continue : nothing
+            for s3_tup in unique_salcs
+                s3 = s3_tup[1][1]
+                for s4_tup in unique_salcs
+                    s4 = s4_tup[1][1]
+                    s3 > s4 ? continue : nothing
                     @timeit to "Filter" begin
                     i12 = GaussianBasis.index2(s1, s2)
                     i34 = GaussianBasis.index2(s3, s4)
@@ -600,32 +928,86 @@ function stwintegrals_fromD(mol, basis, symtext)
                         continue
                     end
                     end
-                    @timeit to "Direct Symint" troot = stwintegrals_bigD(to, bset, salcs, int_garb, abars, s1, s2, s3, s4)
-                    @timeit to "Fill ERI Array" begin
-                    eri[s1,s2,s3,s4] += troot
-                    if s1 != s2
-                        eri[s2,s1,s3,s4] += troot
-                        if s3 != s4
-                            eri[s1,s2,s4,s3] += troot
-                            eri[s2,s1,s4,s3] += troot
-                            if i12 != i34
-                                eri[s3,s4,s1,s2] += troot
-                                eri[s3,s4,s2,s1] += troot
-                                eri[s4,s3,s1,s2] += troot
-                                eri[s4,s3,s2,s1] += troot
+                    # Compute D(G,i,ib) tensors
+                    # Compute X(ib,jb,kb,lb) tensor
+                    # I(i,j,k,l) = sum over G: contract A(G1,G2,G3,G4) = Da(G1,i,ib)Db(G2,j,jb)Dc(G3,k,kb)Dd(G4,l,lb)X(ib,jb,kb,lb)
+                    salc1 = salcs[s1]
+                    salc2 = salcs[s2]
+                    salc3 = salcs[s3]
+                    salc4 = salcs[s4]
+                    s1irrdim = int_garb.irr_dims[salc1.irrep]
+                    s2irrdim = int_garb.irr_dims[salc2.irrep]
+                    s3irrdim = int_garb.irr_dims[salc3.irrep]
+                    s4irrdim = int_garb.irr_dims[salc4.irrep]
+                    D1 = int_garb.irrm[salc1.irrep]
+                    D2 = int_garb.irrm[salc2.irrep]
+                    D3 = int_garb.irrm[salc3.irrep]
+                    D4 = int_garb.irrm[salc4.irrep]
+                    troot = zeros(Float64, (s1irrdim, s2irrdim, s3irrdim, s4irrdim))
+                    #troot = zeros(Float64, (int_garb.irr_dims[salcs[s1].irrep], int_garb.irr_dims[salcs[s2].irrep], int_garb.irr_dims[salcs[s3].irrep], int_garb.irr_dims[salcs[s4].irrep]))
+                    @timeit to "Compute X" X = compute_X(to, bset, salcs, int_garb, abars, s1, s2, s3, s4)
+                    @timeit to "Compute J" begin
+                    J = 0.0
+                    if salc1.irrep == salc2.irrep && salc1.i == salc2.i && salc3.irrep == salc4.irrep && salc3.i == salc4.i
+                        for ib = 1:s1irrdim
+                            for kb = 1:s3irrdim
+                                J += X[ib,ib,kb,kb]
                             end
-                        elseif i12 != i34
-                            eri[s3,s4,s1,s2] += troot
-                            eri[s3,s4,s2,s1] += troot
                         end
-                    elseif s3 != s4
-                        eri[s1,s2,s4,s3] += troot
-                        if i12 != i34
-                            eri[s3,s4,s1,s2] += troot    
-                            eri[s4,s3,s1,s2] += troot    
+                        J *= 1.0/(s2irrdim)
                         end
-                    elseif i12 != i34
-                        eri[s3,s4,s1,s2] += troot
+                    end
+                    @timeit to "Compute K" begin
+                    if salc1.irrep == salc4.irrep && salc1.i == salc4.i && salc2.irrep == salc3.irrep && salc2.i == salc3.i
+                        J = 0.0
+                        for ib = 1:s1irrdim
+                            for jb = 1:s2irrdim
+                                J += X[ib,jb,jb,ib]
+                            end
+                        end
+                        J *= 1.0/(s4irrdim)
+                        end
+                    end
+                    @timeit to "Int Assignment" begin
+                    for (s1_d_idx,s1_d) in enumerate(s1_tup)
+                        for (s2_d_idx,s2_d) in enumerate(s2_tup)
+                            for (s3_d_idx,s3_d) in enumerate(s3_tup)
+                                for (s4_d_idx,s4_d) in enumerate(s4_tup)
+                                    s1_d[1] > s2_d[1] ? continue : nothing
+                                    s3_d[1] > s4_d[1] ? continue : nothing
+                                    i12 = GaussianBasis.index2(groops[s1_d[1]],groops[s2_d[1]])
+                                    i34 = GaussianBasis.index2(groops[s3_d[1]],groops[s4_d[1]])
+                                    i12 < i34 ? continue : nothing
+                                    troots = troot[s1_d_idx,s2_d_idx,s3_d_idx,s4_d_idx]
+                                    troots *= s1_d[2].γ * s2_d[2].γ * s3_d[2].γ * s4_d[2].γ
+                                    eri[s1_d[1],s2_d[1],s3_d[1],s4_d[1]] += troots
+                                    if s1_d[1] != s2_d[1]
+                                        eri[s2_d[1],s1_d[1],s3_d[1],s4_d[1]] += troots
+                                        if s3_d[1] != s4_d[1]
+                                            eri[s1_d[1],s2_d[1],s4_d[1],s3_d[1]] += troots
+                                            eri[s2_d[1],s1_d[1],s4_d[1],s3_d[1]] += troots
+                                            if i12 != i34
+                                                eri[s3_d[1],s4_d[1],s1_d[1],s2_d[1]] += troots
+                                                eri[s3_d[1],s4_d[1],s2_d[1],s1_d[1]] += troots
+                                                eri[s4_d[1],s3_d[1],s1_d[1],s2_d[1]] += troots
+                                                eri[s4_d[1],s3_d[1],s2_d[1],s1_d[1]] += troots
+                                            end
+                                        elseif i12 != i34
+                                            eri[s3_d[1],s4_d[1],s1_d[1],s2_d[1]] += troots
+                                            eri[s3_d[1],s4_d[1],s2_d[1],s1_d[1]] += troots
+                                        end
+                                    elseif s3_d[1] != s4_d[1]
+                                        eri[s1_d[1],s2_d[1],s4_d[1],s3_d[1]] += troots
+                                        if i12 != i34
+                                            eri[s3_d[1],s4_d[1],s1_d[1],s2_d[1]] += troots
+                                            eri[s4_d[1],s3_d[1],s1_d[1],s2_d[1]] += troots
+                                        end
+                                    elseif i12 != i34
+                                        eri[s3_d[1],s4_d[1],s1_d[1],s2_d[1]] += troots
+                                    end
+                                end
+                            end
+                        end
                     end
                     end
                 end
@@ -635,10 +1017,12 @@ function stwintegrals_fromD(mol, basis, symtext)
     end
     print("\n")
     println(findmax(broadcast(abs, eri-SERI)))
+    #println(eri[9,6,7,7])
+    #println(broadcast(abs, eri[4:6,4:6,7:9,7:9]-SERI[4:6,4:6,7:9,7:9]))
     show(to)
 end
 
-function stwintegrals_bigD(to, bset, salcs, int_garb, abars, s1, s2, s3, s4)
+function stwintegrals_bigDirect(to, bset, salcs, int_garb, abars, s1, s2, s3, s4)
     salc1 = salcs[s1]
     salc2 = salcs[s2]
     salc3 = salcs[s3]
@@ -690,4 +1074,108 @@ function stwintegrals_bigD(to, bset, salcs, int_garb, abars, s1, s2, s3, s4)
         end
     end
     return troot
+end
+
+function build_Λarr(int_garb, salc, abidx_l, ib_l,R)
+    return Float64[Λfxn(int_garb, salc, ab, ib, R) for ab=1:abidx_l, ib=1:ib_l]
+end
+
+function build_Λarr(int_garb,salc,abidx_l,ib_l)
+    return Float64[Λfxn(int_garb, salc, ab, ib) for ab=1:abidx_l, ib=1:ib_l]
+end
+
+function build_Darr(int_garb, irrep, i)
+    return transpose(reduce(hcat,[int_garb.irrm[irrep][g][i,:] for g=1:int_garb.g]))
+end
+
+function stwintegrals_bigDirect_2(to, bset, salcs, int_garb, abars, s1, s2, s3, s4)
+    salc1 = salcs[s1]
+    salc2 = salcs[s2]
+    salc3 = salcs[s3]
+    salc4 = salcs[s4]
+    U = int_garb.stat_subgrps[salc1.atom]
+    V = int_garb.stat_subgrps[salc2.atom]
+    W = int_garb.stat_subgrps[salc3.atom]
+    X = int_garb.stat_subgrps[salc4.atom]
+    s1irrdim = int_garb.irr_dims[salc1.irrep]
+    s2irrdim = int_garb.irr_dims[salc2.irrep]
+    s3irrdim = int_garb.irr_dims[salc3.irrep]
+    s4irrdim = int_garb.irr_dims[salc4.irrep]
+    D1 = build_Darr(int_garb, salc1.irrep, salc1.i)
+    D2 = build_Darr(int_garb, salc2.irrep, salc2.i)
+    D3 = build_Darr(int_garb, salc3.irrep, salc3.i)
+    D4 = build_Darr(int_garb, salc4.irrep, salc4.i)
+    Λ1 = build_Λarr(int_garb, salc1, 2*salc1.sh-1, s1irrdim)
+    @timeit to "get_Rs" Rs, λRs = get_Rs(to, U, V, int_garb.symtext)
+    @timeit to "get_Ss" Ss, λSs = get_Rs(to, W, X, int_garb.symtext)
+    troot = 0.0
+    for R in Rs
+        Λ2 = build_Λarr(int_garb, salc2, 2*salc2.sh-1, s2irrdim, R)
+        M = intersect(int_garb.stat_subgrps[salc1.atom], int_garb.stat_subgrps[int_garb.symtext.atom_map[salc2.atom, R]])
+        Rb = int_garb.symtext.atom_map[salc2.atom,R]
+        for S in Ss
+            N = intersect(int_garb.stat_subgrps[salc3.atom], int_garb.stat_subgrps[int_garb.symtext.atom_map[salc4.atom, S]])
+            @timeit to "get_Ts" Ts, λTs = get_Rs(to, M, N, int_garb.symtext)
+            for (Tidx,T) in enumerate(Ts)
+                Tc = int_garb.symtext.atom_map[salc3.atom,T]
+                TSd = int_garb.symtext.atom_map[salc4.atom,int_garb.symtext.mult_table[T,S]]
+                @timeit to "AO int calc" out = ERI_2e4c(bset, abars[salc1.atom][salc1.bfxn][1], abars[Rb][salc2.bfxn][1], abars[Tc][salc3.bfxn][1], abars[TSd][salc4.bfxn][1])
+                @timeit to "Lambda build" begin
+                Λ3 = build_Λarr(int_garb, salc3, 2*salc3.sh-1, s3irrdim, T)
+                Λ4 = build_Λarr(int_garb, salc4, 2*salc4.sh-1, s4irrdim, int_garb.symtext.mult_table[T,S])
+                end
+                @timeit to "Calc H and Contract" begin
+                    @timeit to "Contract" @tensoropt trout[g1,g2,g3,g4] := D1[g1,ib]*D2[g2,jb]*D3[g3,kb]*D4[g4,lb]*Λ1[ab,ib]*Λ2[bb,jb]*Λ3[cb,kb]*Λ4[db,lb]*out[ab,bb,cb,db]
+                    summa = 0.0
+                    for g = 1:int_garb.g
+                        summa += trout[g,g,g,g]
+                    end
+                end
+                @timeit to "Int assignment" begin
+                    troot += summa*salc1.γ*salc2.γ*salc3.γ*salc4.γ/λTs[Tidx]
+                end
+            end
+        end
+    end
+    return troot
+end
+
+function compute_X(to, bset, salcs, int_garb, abars, s1, s2, s3, s4)
+    salc1 = salcs[s1]
+    salc2 = salcs[s2]
+    salc3 = salcs[s3]
+    salc4 = salcs[s4]
+    U = int_garb.stat_subgrps[salc1.atom]
+    V = int_garb.stat_subgrps[salc2.atom]
+    W = int_garb.stat_subgrps[salc3.atom]
+    X = int_garb.stat_subgrps[salc4.atom]
+    s1irrdim = int_garb.irr_dims[salc1.irrep]
+    s2irrdim = int_garb.irr_dims[salc2.irrep]
+    s3irrdim = int_garb.irr_dims[salc3.irrep]
+    s4irrdim = int_garb.irr_dims[salc4.irrep]
+    Xp = zeros(Float64, (s1irrdim, s2irrdim, s3irrdim, s4irrdim))
+    Λ1 = build_Λarr(int_garb, salc1, 2*salc1.sh-1, s1irrdim)
+    @timeit to "get_Rs" Rs, λRs = get_Rs(to, U, V, int_garb.symtext)
+    @timeit to "get_Ss" Ss, λSs = get_Rs(to, W, X, int_garb.symtext)
+    for R in Rs
+        Λ2 = build_Λarr(int_garb, salc2, 2*salc2.sh-1, s2irrdim, R)
+        M = intersect(int_garb.stat_subgrps[salc1.atom], int_garb.stat_subgrps[int_garb.symtext.atom_map[salc2.atom, R]])
+        Rb = int_garb.symtext.atom_map[salc2.atom,R]
+        for S in Ss
+            N = intersect(int_garb.stat_subgrps[salc3.atom], int_garb.stat_subgrps[int_garb.symtext.atom_map[salc4.atom, S]])
+            @timeit to "get_Ts" Ts, λTs = get_Rs(to, M, N, int_garb.symtext)
+            for (Tidx,T) in enumerate(Ts)
+                Tc = int_garb.symtext.atom_map[salc3.atom,T]
+                TSd = int_garb.symtext.atom_map[salc4.atom,int_garb.symtext.mult_table[T,S]]
+                @timeit to "AO int calc" out = ERI_2e4c(bset, abars[salc1.atom][salc1.bfxn][1], abars[Rb][salc2.bfxn][1], abars[Tc][salc3.bfxn][1], abars[TSd][salc4.bfxn][1])
+                @timeit to "Lambda build" begin
+                Λ3 = build_Λarr(int_garb, salc3, 2*salc3.sh-1, s3irrdim, T)
+                Λ4 = build_Λarr(int_garb, salc4, 2*salc4.sh-1, s4irrdim, int_garb.symtext.mult_table[T,S])
+                end
+                λTi = 1/λTs[Tidx]
+                @timeit to "Contract for X" @tensoropt Xp[ib,jb,kb,lb] += λTi * Λ1[ab,ib]*Λ2[bb,jb]*Λ3[cb,kb]*Λ4[db,lb]*out[ab,bb,cb,db]
+            end
+        end
+    end
+    return Xp
 end

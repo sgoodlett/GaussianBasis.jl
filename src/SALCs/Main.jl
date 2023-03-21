@@ -1,15 +1,15 @@
 
-struct SALC{F<:Real,I<:Integer}
-    coeffs::Vector{F}
-    irrep::String
-    atom::I
-    bfxn::I
-    sh::I # This is actually l+1, kinda weird but it's so we can index into things, I'll change this later, but I don't want to reset julia rn
-    ml::I # 1 <= ml <= 2l+1
-    i::I
-    r::I
-    γ::F
-end
+#struct SALC{F<:Real,I<:Integer}
+#    coeffs::Vector{F}
+#    irrep::String
+#    atom::I
+#    bfxn::I
+#    sh::I # This is actually l+1, kinda weird but it's so we can index into things, I'll change this later, but I don't want to reset julia rn
+#    ml::I # 1 <= ml <= 2l+1
+#    i::I
+#    r::I
+#    γ::F
+#end
 
 mutable struct SALCblock
     irrep::String
@@ -90,11 +90,11 @@ function salc_irreps(ct, bset)
 end
 
 #function that adds to the salc struct if lcao is unique
-function addlcao!(salcs, salc, ir, irrep, stevie_boy, atomidx, bfxnidx, l, ml, gammas)
+function addlcao!(salcs, salc, ir, irrep, salc_vector, atomidx, bfxnidx, l, ml, gammas)
     #New = []
     rank_atol = 1e-10
     for r = 1:size(salc)[1]
-    for (i,s) in enumerate(salc[:,r]) # i is for Stevie boy, r = 1 always! WRONG STUPID
+    for (i,s) in enumerate(salc[:,r]) # i is for salc_vector, r = 1 always! WRONG STUPID
         check = true
         if gammas[i,r] == 0.0
             check = false
@@ -111,7 +111,7 @@ function addlcao!(salcs, salc, ir, irrep, stevie_boy, atomidx, bfxnidx, l, ml, g
         if check
             #push!(salcs[ir].lcao, s)
             salcs[ir].lcao = hcat(salcs[ir].lcao, s)
-            push!(stevie_boy, SALC(s, irrep, atomidx, bfxnidx, l+1, ml, i, r, gammas[i,r]))
+            push!(salc_vector, SALC{Float64,Int64}(s, irrep, atomidx, bfxnidx, l+1, ml, i, r, gammas[i,r]))
         end
     end
     end 
@@ -121,7 +121,7 @@ end
 
 #non-abelian projection operator for real-spherical harmonics
 function ProjectionOp(mol, bset, symtext)
-    stevie_boy = Vector{SALC}()
+    salc_vector = Vector{SALC{Float64,Int64}}()
     D = Molecules.Symmetry.buildD(mol)
     SEAs = Molecules.Symmetry.findSEA(D, 5)
     maxam = maxamcheck(bset)
@@ -171,18 +171,18 @@ function ProjectionOp(mol, bset, symtext)
                                         end
                                         factor = sum(x -> x^2, salcy)
                                         if abs(factor) < 1e-8
-                                            println("Fook")
+                                            println("Warning: Zero SALC detected")
                                         end
                                         if salcy[index[2]] < 0
-                                            γ = -1/sqrt(factor) # This is for Stevie boy
+                                            γ = -1/sqrt(factor) # This is for salc_vector
             			                    salc[i] = (-1.0/sqrt(factor))*salcy
             			                else
-                                            γ = 1/sqrt(factor) # This is for Stevie boy
+                                            γ = 1/sqrt(factor) # This is for salc_vector
                                             salc[i] = (1.0/sqrt(factor))*salcy
                                         end
                                         gammas[i] = γ
                                     end
-                                    salcs = addlcao!(salcs, salc, ir, irrep, stevie_boy, equivatom, bsfxn_counter, l, ml, gammas)
+                                    salcs = addlcao!(salcs, salc, ir, irrep, salc_vector, equivatom, bsfxn_counter, l, ml, gammas)
                                 end 
                             end
                         end 
@@ -201,21 +201,21 @@ function ProjectionOp(mol, bset, symtext)
 	    so_irrep = vcat(so_irrep, fill(i, size(salcs[i].lcao)[1]))
 	    salcs[i].lcao = sal
     end
-    poo_factor = floor(Int64,size(bigg)[1]//bset.nbas)-bset.nbas
-    bigg = reshape(bigg, bset.nbas, bset.nbas+poo_factor) 
+    excess_salc_num = floor(Int64,size(bigg)[1]//bset.nbas)-bset.nbas
+    bigg = reshape(bigg, bset.nbas, bset.nbas+excess_salc_num) 
     bigg = convert(Array{Float64}, bigg)
-    #sort!(stevie_boy, by = x->(Molecules.Symmetry.CharacterTables.irrep_sort_idx(x.irrep), x.atom, x.bfxn, x.i, x.r))
-    sort!(stevie_boy, by = x->(Molecules.Symmetry.CharacterTables.irrep_sort_idx(x.irrep)))
-    if poo_factor == 0
+    #sort!(salc_vector, by = x->(Molecules.Symmetry.CharacterTables.irrep_sort_idx(x.irrep), x.atom, x.bfxn, x.i, x.r))
+    sort!(salc_vector, by = x->(Molecules.Symmetry.CharacterTables.irrep_sort_idx(x.irrep)))
+    if excess_salc_num == 0
         salc_chk = LinearAlgebra.det(bigg)
         if abs(salc_chk) < 1e-8
             display(bigg)
-            throw(ErrorException("Oh fook, the SALCs are linearly dependent!!!"))
+            throw(ErrorException("Error, the SALCs are linearly dependent!!!"))
         end
     else
-        println("Poo factor in use ($poo_factor), cannot check SALCs for linear dependence")
+        println("Allowing too many SALCs through: ($excess_salc_num), cannot check SALCs for linear dependence")
     end
-    return salcs, bigg, so_irrep, stevie_boy, rotated#, symtext
+    return salcs, bigg, so_irrep, salc_vector, rotated#, symtext
 end
 
 function garbo()
