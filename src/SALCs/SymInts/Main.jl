@@ -603,17 +603,18 @@ end
 function stwintegrals_fromDirect(mol, basis, symtext, Halg::Int)
     to = TimerOutput()
     bset, int_garb, salcs, abars, aotoso = bigDirect_setup(to, mol, basis, symtext)
-    @timeit to "Ints the hard way" begin
-        ERI_AO = ERI_2e4c(bset)
-        SERI = zeros(bset.nbas, bset.nbas, bset.nbas, bset.nbas)
-        @tensoropt SERI[i,j,k,l] =  aotoso[μ, i]*aotoso[ν, j]*ERI_AO[μ, ν, ρ, σ]*aotoso[ρ, k]*aotoso[σ, l]
-    end
+    #@timeit to "Ints the hard way" begin
+    #    ERI_AO = ERI_2e4c(bset)
+    #    SERI = zeros(bset.nbas, bset.nbas, bset.nbas, bset.nbas)
+    #    @tensoropt SERI[i,j,k,l] =  aotoso[μ, i]*aotoso[ν, j]*ERI_AO[μ, ν, ρ, σ]*aotoso[ρ, k]*aotoso[σ, l]
+    #end
     slength = length(salcs)
     eri = zeros(Float64, slength, slength, slength, slength)
+    #println(salcs)
     unique_salcs, groops = find_unique_salcs1(salcs)
     #display(salcs[29:end])
-    display(unique_salcs[end])
-    println(groops)
+    #display(unique_salcs[end])
+    #println(groops)
     #println(get_petite_idxs(salcs))
     #println(length(get_petite_idxs(salcs)))
     #cg = build_ClebschGordan(int_garb)
@@ -740,7 +741,7 @@ function stwintegrals_fromDirect(mol, basis, symtext, Halg::Int)
                             continue
                         end
                         end
-                        if Halg == 15 || Halg == 16
+                        if Halg >= 15
                             # Compute D(G,i,ib) tensors
                             # Compute X(ib,jb,kb,lb) tensor
                             # I(i,j,k,l) = sum over G: contract A(G1,G2,G3,G4) = Da(G1,i,ib)Db(G2,j,jb)Dc(G3,k,kb)Dd(G4,l,lb)X(ib,jb,kb,lb)
@@ -785,10 +786,171 @@ function stwintegrals_fromDirect(mol, basis, symtext, Halg::Int)
                                         end
                                     end
                                 end
-                                if s1 == 4 && s2 == 4 && s3 == 4 && s4 ==4
-                                    println(troot[1,1,1,1])
-                                end
+                                #if s1 == 4 && s2 == 4 && s3 == 4 && s4 ==4
+                                #    println(troot[1,1,1,1])
+                                #end
                             elseif Halg == 16
+                                @timeit to "Contract over G" begin
+                                if s1irrdim > 1
+                                    if s2irrdim > 1
+                                        if s3irrdim > 1
+                                            if s4irrdim > 1
+                                                for g = 1:int_garb.g
+                                                    Di = D1[g]
+                                                    Dj = D2[g]
+                                                    Dk = D3[g]
+                                                    Dl = D4[g]
+                                                    @tensoropt troot[i,j,k,l] += Di[i,ib]*Dj[j,jb]*Dk[k,kb]*Dl[l,lb]*X[ib,jb,kb,lb]
+                                                end
+                                            else
+                                                for g = 1:int_garb.g
+                                                    Di = D1[g]
+                                                    Dj = D2[g]
+                                                    Dk = D3[g]
+                                                    Dl = D4[g][1,1]
+                                                    @tensoropt troot[i,j,k,l] += Di[i,ib]*Dj[j,jb]*Dk[k,kb]*Dl*X[ib,jb,kb,l]
+                                                end
+                                            end
+                                        else
+                                            if s4irrdim > 1
+                                                for g = 1:int_garb.g
+                                                    Di = D1[g]
+                                                    Dj = D2[g]
+                                                    Dk = D3[g][1,1]
+                                                    Dl = D4[g]
+                                                    @tensoropt troot[i,j,k,l] += Di[i,ib]*Dj[j,jb]*Dk*Dl[l,lb]*X[ib,jb,k,lb]
+                                                end
+                                            else
+                                                for g = 1:int_garb.g
+                                                    Di = D1[g]
+                                                    Dj = D2[g]
+                                                    Dk = D3[g][1,1]
+                                                    Dl = D4[g][1,1]
+                                                    @tensoropt troot[i,j,k,l] += Di[i,ib]*Dj[j,jb]*Dk*Dl*X[ib,jb,k,l]
+                                                end
+                                            end
+                                        end
+                                    else
+                                        if s3irrdim > 1
+                                            if s4irrdim > 1
+                                                for g = 1:int_garb.g
+                                                    Di = D1[g]
+                                                    Dj = D2[g][1,1]
+                                                    Dk = D3[g]
+                                                    Dl = D4[g]
+                                                    @tensoropt troot[i,j,k,l] += Di[i,ib]*Dj*Dk[k,kb]*Dl[l,lb]*X[ib,j,kb,lb]
+                                                end
+                                            else
+                                                for g = 1:int_garb.g
+                                                    Di = D1[g]
+                                                    Dj = D2[g][1,1]
+                                                    Dk = D3[g]
+                                                    Dl = D4[g][1,1]
+                                                    @tensoropt troot[i,j,k,l] += Di[i,ib]*Dj*Dk[k,kb]*Dl*X[ib,j,kb,l]
+                                                end
+                                            end
+                                        else
+                                            if s4irrdim > 1
+                                                for g = 1:int_garb.g
+                                                    Di = D1[g]
+                                                    Dj = D2[g][1,1]
+                                                    Dk = D3[g][1,1]
+                                                    Dl = D4[g]
+                                                    @tensoropt troot[i,j,k,l] += Di[i,ib]*Dj*Dk*Dl[l,lb]*X[ib,j,k,lb]
+                                                end
+                                            else
+                                                for g = 1:int_garb.g
+                                                    Di = D1[g]
+                                                    Dj = D2[g][1,1]
+                                                    Dk = D3[g][1,1]
+                                                    Dl = D4[g][1,1]
+                                                    @tensoropt troot[i,j,k,l] += Di[i,ib]*Dj*Dk*Dl*X[ib,j,k,l]
+                                                end
+                                            end
+                                        end
+                                    end
+                                else
+                                    if s2irrdim > 1
+                                        if s3irrdim > 1
+                                            if s4irrdim > 1
+                                                for g = 1:int_garb.g
+                                                    Di = D1[g][1,1]
+                                                    Dj = D2[g]
+                                                    Dk = D3[g]
+                                                    Dl = D4[g]
+                                                    @tensoropt troot[i,j,k,l] += Di*Dj[j,jb]*Dk[k,kb]*Dl[l,lb]*X[i,jb,kb,lb]
+                                                end
+                                            else
+                                                for g = 1:int_garb.g
+                                                    Di = D1[g][1,1]
+                                                    Dj = D2[g]
+                                                    Dk = D3[g]
+                                                    Dl = D4[g][1,1]
+                                                    @tensoropt troot[i,j,k,l] += Di*Dj[j,jb]*Dk[k,kb]*Dl*X[i,jb,kb,l]
+                                                end
+                                            end
+                                        else
+                                            if s4irrdim > 1
+                                                for g = 1:int_garb.g
+                                                    Di = D1[g][1,1]
+                                                    Dj = D2[g]
+                                                    Dk = D3[g][1,1]
+                                                    Dl = D4[g]
+                                                    @tensoropt troot[i,j,k,l] += Di*Dj[j,jb]*Dk*Dl[l,lb]*X[i,jb,k,lb]
+                                                end
+                                            else
+                                                for g = 1:int_garb.g
+                                                    Di = D1[g][1,1]
+                                                    Dj = D2[g]
+                                                    Dk = D3[g][1,1]
+                                                    Dl = D4[g][1,1]
+                                                    @tensoropt troot[i,j,k,l] += Di*Dj[j,jb]*Dk*Dl*X[i,jb,k,l]
+                                                end
+                                            end
+                                        end
+                                    else
+                                        if s3irrdim > 1
+                                            if s4irrdim > 1
+                                                for g = 1:int_garb.g
+                                                    Di = D1[g][1,1]
+                                                    Dj = D2[g][1,1]
+                                                    Dk = D3[g]
+                                                    Dl = D4[g]
+                                                    @tensoropt troot[i,j,k,l] += Di*Dj*Dk[k,kb]*Dl[l,lb]*X[i,j,kb,lb]
+                                                end
+                                            else
+                                                for g = 1:int_garb.g
+                                                    Di = D1[g][1,1]
+                                                    Dj = D2[g][1,1]
+                                                    Dk = D3[g]
+                                                    Dl = D4[g][1,1]
+                                                    @tensoropt troot[i,j,k,l] += Di*Dj*Dk[k,kb]*Dl*X[i,j,kb,l]
+                                                end
+                                            end
+                                        else
+                                            if s4irrdim > 1
+                                                for g = 1:int_garb.g
+                                                    Di = D1[g][1,1]
+                                                    Dj = D2[g][1,1]
+                                                    Dk = D3[g][1,1]
+                                                    Dl = D4[g]
+                                                    @tensoropt troot[i,j,k,l] += Di*Dj*Dk*Dl[l,lb]*X[i,j,k,lb]
+                                                end
+                                            else
+                                                for g = 1:int_garb.g
+                                                    Di = D1[g][1,1]
+                                                    Dj = D2[g][1,1]
+                                                    Dk = D3[g][1,1]
+                                                    Dl = D4[g][1,1]
+                                                    troot[1,1,1,1] += Di*Dj*Dk*Dl*X[1,1,1,1]
+                                                end
+                                            end
+                                        end
+                                    end
+                                end
+                                end
+
+                            elseif Halg == 17
                                 for ib = 1:s1irrdim
                                     for jb = 1:s2irrdim
                                         for kb = 1:s3irrdim
@@ -879,7 +1041,7 @@ function stwintegrals_fromDirect(mol, basis, symtext, Halg::Int)
         end
     end
     print("\n")
-    println(findmax(broadcast(abs, eri-SERI)))
+    #println(findmax(broadcast(abs, eri-SERI)))
     #println(eri[9,6,7,7])
     #println(broadcast(abs, eri[4:6,4:6,7:9,7:9]-SERI[4:6,4:6,7:9,7:9]))
     show(to)
@@ -1074,8 +1236,8 @@ function stwintegrals_bigDirect(to, bset, salcs, int_garb, abars, s1, s2, s3, s4
         end
     end
     return troot
-end
 
+end
 function build_Λarr(int_garb, salc, abidx_l, ib_l,R)
     return Float64[Λfxn(int_garb, salc, ab, ib, R) for ab=1:abidx_l, ib=1:ib_l]
 end

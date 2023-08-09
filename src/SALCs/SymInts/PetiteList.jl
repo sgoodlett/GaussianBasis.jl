@@ -1,4 +1,4 @@
-function poopoo(salc1, salc2)
+function isequiv(salc1, salc2)
     chk1 = salc1.irrep == salc2.irrep
     chk2 = salc1.sh == salc2.sh
     chk3 = salc1.atom == salc2.atom
@@ -17,7 +17,7 @@ function find_unique_salcs(salcs)
     for (sidx, salc) in enumerate(salcs[2:end])
         chork = true
         for (usidx,usalc) in enumerate(unique_salcs)
-            if poopoo(salc, usalc[2])
+            if isequiv(salc, usalc[2])
                 push!(out, usalc[1])
                 chork = false
                 break
